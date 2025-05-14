@@ -6,6 +6,7 @@ crawlit.py - Modular, Ethical Python Web Crawler
 import argparse
 import sys
 import logging
+import datetime
 
 # Configure logging
 logging.basicConfig(
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 # Import the crawler components
 from crawler.engine import Crawler
+from output.formatters import save_results, generate_summary_report
 
 def parse_args():
     """Parse command line arguments"""
@@ -28,12 +30,14 @@ def parse_args():
     parser.add_argument("--depth", "-d", type=int, default=3, help="Maximum crawl depth")
     parser.add_argument("--output-format", "-f", default="json", choices=["json", "csv", "txt"], 
                         help="Output format (json, csv, txt)")
-    parser.add_argument("--output-file", "-o", default="crawl_results.json", help="File to save results")
+    parser.add_argument("--output", "-O", default="crawl_results.json", help="File to save results")
     parser.add_argument("--respect-robots", "-r", action="store_true", help="Respect robots.txt rules")
     parser.add_argument("--delay", type=float, default=0.1, help="Delay between requests (seconds)")
-    parser.add_argument("--user-agent", default="crawlit/1.0", help="Custom User-Agent string")
-    parser.add_argument("--allow-external", action="store_true", default=False, 
+    parser.add_argument("--user-agent", "-a", default="crawlit/1.0", help="Custom User-Agent string")
+    parser.add_argument("--allow-external", "-e", action="store_true", default=False, 
                         help="Allow crawling URLs outside the initial domain")
+    parser.add_argument("--summary", "-s", action="store_true", default=False,
+                        help="Show a summary of crawl results at the end")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     
     return parser.parse_args()
@@ -47,6 +51,9 @@ def main():
         logger.setLevel(logging.DEBUG)
     
     try:
+        # Record start time for duration calculation
+        start_time = datetime.datetime.now()
+        
         # Initialize the crawler
         crawler = Crawler(
             start_url=args.url,
@@ -61,7 +68,7 @@ def main():
         logger.info(f"Domain restriction is {'disabled' if args.allow_external else 'enabled'}")
         crawler.crawl()
         
-        # Get and output results
+        # Get results
         results = crawler.get_results()
         logger.info(f"Crawl complete. Visited {len(results)} URLs.")
         
@@ -71,8 +78,18 @@ def main():
             if skipped:
                 logger.info(f"Skipped {len(skipped)} external URLs (use --allow-external to crawl them)")
         
-        # Future: Save results to file in the specified format
-        # save_results(results, args.output_format, args.output_file)
+        # Save results to file in the specified format
+        output_path = save_results(results, args.output_format, args.output)
+        logger.info(f"Results saved to {output_path}")
+        
+        # Calculate and display crawl duration
+        end_time = datetime.datetime.now()
+        duration = end_time - start_time
+        logger.info(f"Total crawl time: {duration}")
+        
+        # Show summary if requested
+        if args.summary:
+            print("\n" + generate_summary_report(results))
         
     except KeyboardInterrupt:
         logger.info("Crawl interrupted by user.")

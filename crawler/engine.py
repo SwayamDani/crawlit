@@ -139,8 +139,8 @@ class Crawler:
         return True
         
     def get_results(self):
-        """Return the crawl results"""
-        return list(self.visited_urls)
+        """Return the detailed crawl results"""
+        return self.results
         
     def get_skipped_external_urls(self):
         """Return the list of skipped external URLs"""
