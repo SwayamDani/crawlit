@@ -15,6 +15,7 @@ A powerful, modular, and ethical web crawler built in Python. Designed for secur
 - **Multiple Output Formats**: Export results as JSON, CSV, or plain text
 - **Detailed Logging**: Comprehensive logging of all crawler activities
 - **Command Line Interface**: Simple, powerful CLI for easy usage
+- **Programmatic API**: Use as a library in your own Python code
 
 ## 📋 Requirements
 
@@ -22,6 +23,18 @@ A powerful, modular, and ethical web crawler built in Python. Designed for secur
 - Dependencies (will be listed in requirements.txt)
 
 ## 🛠️ Installation
+
+### From PyPI (recommended)
+
+```bash
+# Install the core library
+pip install crawlit
+
+# Install with CLI tool support
+pip install crawlit[cli]
+```
+
+### From Source
 
 ```bash
 # Clone the repository
@@ -34,27 +47,57 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
+
+# Install in development mode
+pip install -e .
 ```
 
 ## 📘 Usage
 
-### Basic Usage`
+### As a Library in Your Python Code
 
-```bash
-python crawlit.py --url https://example.com
+```python
+from crawlit import Crawler, save_results, generate_summary_report
+
+# Initialize the crawler with custom parameters
+crawler = Crawler(
+    start_url="https://example.com",
+    max_depth=3,
+    internal_only=True,
+    user_agent="MyCustomBot/1.0",
+    delay=0.5,
+    respect_robots=True
+)
+
+# Start crawling
+crawler.crawl()
+
+# Get and process results
+results = crawler.get_results()
+print(f"Crawled {len(results)} URLs")
+
+# Save results in different formats
+save_results(results, "json", "crawl_results.json", pretty=True)
 ```
 
-### Advanced Options
+See the `examples/programmatic_usage.py` file for a complete example.
+
+### Command Line Interface
+
+If you installed with `pip install crawlit[cli]`, you can use the command-line interface:
 
 ```bash
-python crawlit.py --url https://example.com \
-                 --depth 3 \
-                 --output-format json \
-                 --output-file results.json \
-                 --respect-robots \
-                 --delay 0.5 \
-                 --user-agent "crawlit/1.0" \
-                 --internal-only
+# Basic usage
+crawlit --url https://example.com
+
+# Advanced options
+crawlit --url https://example.com \
+        --depth 3 \
+        --output-format json \
+        --output results.json \
+        --delay 0.5 \
+        --user-agent "crawlit/1.0" \
+        --ignore-robots
 ```
 
 ### Command Line Arguments
@@ -63,12 +106,14 @@ python crawlit.py --url https://example.com \
 |----------|-------------|---------|
 | `--url`, `-u` | Target website URL | Required |
 | `--depth`, `-d` | Maximum crawl depth | 3 |
-| `--output-format`, `-f` | Output format (json, csv, txt) | json |
-| `--output-file`, `-o` | File to save results | crawl_results.json |
-| `--respect-robots`, `-r` | Respect robots.txt rules | False |
+| `--output-format`, `-f` | Output format (json, csv, txt, html) | json |
+| `--output`, `-O` | File to save results | crawl_results.json |
+| `--pretty-json`, `-p` | Enable pretty-print JSON with indentation | False |
+| `--ignore-robots`, `-i` | Ignore robots.txt rules | False |
 | `--delay` | Delay between requests (seconds) | 0.1 |
-| `--user-agent` | Custom User-Agent string | crawlit/1.0 |
-| `--internal-only`, `-i` | Only crawl URLs within the same domain | True |
+| `--user-agent`, `-a` | Custom User-Agent string | crawlit/1.0 |
+| `--allow-external`, `-e` | Allow crawling URLs outside initial domain | False |
+| `--summary`, `-s` | Show a summary of crawl results | False |
 | `--verbose`, `-v` | Verbose output | False |
 | `--help`, `-h` | Show help message | - |
 
@@ -76,25 +121,21 @@ python crawlit.py --url https://example.com \
 
 ```
 crawlit/
-├── crawlit.py           # Main entry point
+├── crawlit.py           # CLI entry point
 ├── requirements.txt     # Project dependencies
 ├── crawler/             # Core crawler modules
 │   ├── __init__.py
 │   ├── engine.py        # Core crawler logic
 │   ├── fetcher.py       # HTTP request handling
 │   ├── parser.py        # HTML parsing and link extraction
-│   ├── robots.py        # Robots.txt parser
-│   └── utils.py         # Utility functions
+│   └── robots.py        # Robots.txt parser
 ├── output/              # Output formatters
 │   ├── __init__.py
-│   ├── json_formatter.py
-│   ├── csv_formatter.py
-│   └── text_formatter.py
+│   └── formatters.py    # Output formatting functions
+├── examples/            # Example usage
+│   └── programmatic_usage.py  # Example of using as a library
 └── tests/               # Unit and integration tests
-    ├── __init__.py
-    ├── test_crawler.py
-    ├── test_parser.py
-    └── test_robots.py
+    └── __init__.py
 ```
 
 ## 📅 Project Timeline
