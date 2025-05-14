@@ -21,18 +21,82 @@ logger = logging.getLogger(__name__)
 class Crawler:
     """Main crawler class that manages the crawling process"""
     
-    def __init__(self, start_url, max_depth=3, internal_only=True):
+    def __init__(self, start_url, max_depth=3, internal_only=True, 
+                 user_agent="crawlit/1.0", max_retries=3, timeout=10, delay=0.1):
         """Initialize the crawler with given parameters"""
         self.start_url = start_url
         self.max_depth = max_depth
         self.internal_only = internal_only
         self.visited_urls = set()  # Store visited URLs
         self.queue = deque()  # Queue for BFS crawling
+        self.results = {}  # Store results with metadata
+        
+        # Request parameters
+        self.user_agent = user_agent
+        self.max_retries = max_retries
+        self.timeout = timeout
+        self.delay = delay
         
         # Extract domain from start URL for internal-only crawling
         parsed_url = urlparse(start_url)
         self.base_domain = parsed_url.netloc
+
+    def fetch_page(self, url):
+        """
+        Fetch a web page with retries and proper error handling
         
+        Args:
+            url: The URL to fetch
+            
+        Returns:
+            tuple: (success, response_or_error, status_code)
+        """
+        headers = {
+            "User-Agent": self.user_agent,
+            "Accept": "text/html,application/xhtml+xml,application/xml",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+        
+        retries = 0
+        status_code = None
+        
+        while retries <= self.max_retries:
+            try:
+                logger.debug(f"Requesting {url} (attempt {retries + 1}/{self.max_retries + 1})")
+                response = requests.get(
+                    url, 
+                    headers=headers,
+                    timeout=self.timeout
+                )
+                status_code = response.status_code
+                
+                # Check if the request was successful
+                if response.status_code == 200:
+                    return True, response, status_code
+                else:
+                    logger.warning(f"HTTP Error {response.status_code} for {url}")
+                    return False, f"HTTP Error: {response.status_code}", status_code
+                    
+            except requests.exceptions.Timeout:
+                logger.warning(f"Timeout error for {url} (attempt {retries + 1})")
+                retries += 1
+                status_code = 408  # Request Timeout
+                
+            except requests.exceptions.ConnectionError:
+                logger.warning(f"Connection error for {url} (attempt {retries + 1})")
+                retries += 1
+                status_code = 503  # Service Unavailable
+                
+            except requests.exceptions.TooManyRedirects:
+                logger.warning(f"Too many redirects for {url}")
+                return False, "Too many redirects", 310
+                
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Request failed for {url}: {e}")
+                return False, str(e), status_code or 500
+        
+        return False, f"Max retries ({self.max_retries}) exceeded", status_code or 429
+
     def crawl(self):
         """Start the crawling process"""
         # Add the starting URL to the queue with depth 0
@@ -51,23 +115,51 @@ class Crawler:
                 
             logger.info(f"Crawling: {current_url} (depth: {depth})")
             
-            try:
-                # Fetch and process the page
-                response = requests.get(current_url, timeout=10)
-                self.visited_urls.add(current_url)
+            # Initialize result data for this URL
+            self.results[current_url] = {
+                'depth': depth,
+                'status': None,
+                'headers': None,
+                'links': [],
+                'content_type': None,
+                'error': None,
+                'success': False
+            }
+            
+            # Fetch the page using our fetch_page method
+            success, response_or_error, status_code = self.fetch_page(current_url)
+            
+            # Record the HTTP status code
+            self.results[current_url]['status'] = status_code
+            
+            # Mark URL as visited regardless of success
+            self.visited_urls.add(current_url)
+            
+            if success:
+                response = response_or_error
                 
-                # Handle the response (to be implemented)
-                # Extract links and add them to the queue
-                # Process the page content as needed
+                # Store response headers
+                self.results[current_url]['headers'] = dict(response.headers)
+                self.results[current_url]['content_type'] = response.headers.get('Content-Type')
+                self.results[current_url]['success'] = True
                 
-                # Placeholder for link extraction
-                # new_links = extract_links(response.text, current_url)
-                # for link in new_links:
-                #    if self._should_crawl(link):
-                #        self.queue.append((link, depth + 1))
-                
-            except Exception as e:
-                logger.error(f"Error crawling {current_url}: {e}")
+                try:
+                    # Process the page to extract links if it's HTML
+                    if 'text/html' in response.headers.get('Content-Type', ''):
+                        links = self._extract_links(response.text, current_url)
+                        self.results[current_url]['links'] = links
+                        
+                        # Add new links to the queue
+                        for link in links:
+                            if self._should_crawl(link):
+                                self.queue.append((link, depth + 1))
+                except Exception as e:
+                    logger.error(f"Error processing {current_url}: {e}")
+                    self.results[current_url]['error'] = str(e)
+            else:
+                # Store the error information
+                logger.error(f"Failed to fetch {current_url}: {response_or_error}")
+                self.results[current_url]['error'] = response_or_error
     
     def _should_crawl(self, url):
         """Determine if a URL should be crawled based on settings"""
@@ -82,6 +174,47 @@ class Crawler:
                 return False
                 
         return True
+        
+    def _extract_links(self, html_content, base_url):
+        """
+        Extract links from HTML content
+        
+        Args:
+            html_content: The HTML content to parse
+            base_url: The base URL for resolving relative links
+            
+        Returns:
+            list: List of absolute URLs found in the HTML
+        """
+        from bs4 import BeautifulSoup
+        import time
+        
+        # Introduce a small delay to be polite to the server
+        time.sleep(self.delay)
+        
+        soup = BeautifulSoup(html_content, 'lxml')
+        links = []
+        
+        # Find all anchor tags
+        for a_tag in soup.find_all('a', href=True):
+            href = a_tag['href'].strip()
+            
+            # Skip empty links and javascript links
+            if not href or href.startswith('javascript:') or href == '#':
+                continue
+                
+            # Convert relative URLs to absolute
+            absolute_url = urljoin(base_url, href)
+            
+            # Normalize the URL (remove fragments, etc.)
+            parsed = urlparse(absolute_url)
+            normalized_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+            if parsed.query:
+                normalized_url += f"?{parsed.query}"
+                
+            links.append(normalized_url)
+            
+        return links
         
     def get_results(self):
         """Return the crawl results"""
