@@ -28,9 +28,11 @@ def parse_args():
     )
     parser.add_argument("--url", "-u", required=True, help="Target website URL")
     parser.add_argument("--depth", "-d", type=int, default=3, help="Maximum crawl depth")
-    parser.add_argument("--output-format", "-f", default="json", choices=["json", "csv", "txt"], 
-                        help="Output format (json, csv, txt)")
+    parser.add_argument("--output-format", "-f", default="json", choices=["json", "csv", "txt", "html"], 
+                        help="Output format (json, csv, txt, html)")
     parser.add_argument("--output", "-O", default="crawl_results.json", help="File to save results")
+    parser.add_argument("--pretty-json", "-p", action="store_true", default=False,
+                        help="Enable pretty-print JSON with indentation")
     parser.add_argument("--ignore-robots", "-i", action="store_true", default=False, 
                        help="Ignore robots.txt rules when crawling")
     parser.add_argument("--delay", type=float, default=0.1, help="Delay between requests (seconds)")
@@ -81,7 +83,7 @@ def main():
                 logger.info(f"Skipped {len(skipped)} external URLs (use --allow-external to crawl them)")
         
         # Save results to file in the specified format
-        output_path = save_results(results, args.output_format, args.output)
+        output_path = save_results(results, args.output_format, args.output, args.pretty_json)
         logger.info(f"Results saved to {output_path}")
         
         # Calculate and display crawl duration

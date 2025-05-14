@@ -20,7 +20,7 @@ def create_output_file(output_path):
         os.makedirs(output_dir, exist_ok=True)
 
 
-def save_results(results, output_format, output_file):
+def save_results(results, output_format, output_file, pretty_json=False):
     """Save crawler results to specified file in the requested format"""
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
@@ -29,11 +29,13 @@ def save_results(results, output_format, output_file):
     
     # Choose the appropriate formatter based on format
     if output_format.lower() == "json":
-        save_as_json(results, output_file, timestamp)
+        save_as_json(results, output_file, timestamp, pretty_json)
     elif output_format.lower() == "csv":
         save_as_csv(results, output_file, timestamp)
     elif output_format.lower() == "txt":
         save_as_txt(results, output_file, timestamp)
+    elif output_format.lower() == "html":
+        save_as_html(results, output_file, timestamp)
     else:
         raise ValueError(f"Unsupported output format: {output_format}")
     
@@ -41,7 +43,7 @@ def save_results(results, output_format, output_file):
     return output_file
 
 
-def save_as_json(results, output_file, timestamp):
+def save_as_json(results, output_file, timestamp, pretty_json=False):
     """Save crawler results in JSON format"""
     # Create output data structure with metadata and results
     output_data = {
@@ -54,7 +56,10 @@ def save_as_json(results, output_file, timestamp):
     
     # Write to file with nice formatting
     with open(output_file, 'w', encoding='utf-8') as f:
-        json.dump(output_data, f, indent=2, sort_keys=True)
+        if pretty_json:
+            json.dump(output_data, f, indent=2, sort_keys=True)
+        else:
+            json.dump(output_data, f)
 
 
 def save_as_csv(results, output_file, timestamp):
@@ -116,6 +121,180 @@ def save_as_txt(results, output_file, timestamp):
                     f.write(f"  - ... and {len(links) - 5} more\n")
             
             f.write("\n" + "-" * 40 + "\n\n")
+
+
+def save_as_html(results, output_file, timestamp):
+    """Save crawler results in HTML format"""
+    # Create HTML structure with a basic responsive design
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crawlit Results - {timestamp}</title>
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }}
+        .container {{
+            max-width: 1200px;
+            margin: 0 auto;
+        }}
+        header {{
+            background-color: #f4f4f4;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }}
+        h1 {{
+            margin: 0;
+            color: #2c3e50;
+        }}
+        .summary {{
+            background-color: #ecf0f1;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-left: 4px solid #3498db;
+            border-radius: 0 5px 5px 0;
+        }}
+        .url-card {{
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 15px;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
+        .url-card h3 {{
+            margin-top: 0;
+            word-break: break-all;
+        }}
+        .status-success {{
+            color: #27ae60;
+            font-weight: bold;
+        }}
+        .status-error {{
+            color: #c0392b;
+            font-weight: bold;
+        }}
+        .details {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-bottom: 10px;
+        }}
+        .detail-item {{
+            padding: 5px;
+        }}
+        .links-list {{
+            background-color: #f9f9f9;
+            padding: 10px;
+            border-radius: 5px;
+            max-height: 200px;
+            overflow-y: auto;
+        }}
+        footer {{
+            text-align: center;
+            margin-top: 30px;
+            color: #7f8c8d;
+            font-size: 0.9rem;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Crawlit Results</h1>
+            <p>Generated at: {timestamp}</p>
+        </header>
+        
+        <div class="summary">
+            <h2>Crawl Summary</h2>
+            <p>Total URLs: <strong>{len(results)}</strong></p>
+            <p>Successful requests: <strong>{sum(1 for data in results.values() if data.get('success', False))}</strong></p>
+            <p>Failed requests: <strong>{sum(1 for data in results.values() if not data.get('success', False))}</strong></p>
+        </div>
+        
+        <h2>Results by URL</h2>
+"""
+    
+    # Add each URL as a card
+    for url, data in results.items():
+        status = data.get('status', 'N/A')
+        success = data.get('success', False)
+        depth = data.get('depth', 'N/A')
+        content_type = data.get('content_type', 'N/A')
+        error = data.get('error', '')
+        links = data.get('links', [])
+        
+        status_class = "status-success" if success else "status-error"
+        
+        html += f"""
+        <div class="url-card">
+            <h3>{url}</h3>
+            <div class="details">
+                <div class="detail-item">
+                    <strong>Status:</strong> <span class="{status_class}">{status}</span>
+                </div>
+                <div class="detail-item">
+                    <strong>Depth:</strong> {depth}
+                </div>
+                <div class="detail-item">
+                    <strong>Content Type:</strong> {content_type}
+                </div>
+                <div class="detail-item">
+                    <strong>Success:</strong> {success}
+                </div>
+            </div>
+"""
+
+        # Add error if there is one
+        if error:
+            html += f"""
+            <div class="detail-item">
+                <strong>Error:</strong> <span class="status-error">{error}</span>
+            </div>
+"""
+        
+        # Add links if there are any
+        if links:
+            html += f"""
+            <div>
+                <strong>Links Found:</strong> {len(links)}
+                <div class="links-list">
+                    <ul>
+"""
+            # Show all links in HTML
+            for link in links:
+                html += f'                        <li><a href="{link}" target="_blank">{link}</a></li>\n'
+                
+            html += """
+                    </ul>
+                </div>
+            </div>
+"""
+        
+        html += """
+        </div>
+"""
+    
+    # Close HTML structure
+    html += """
+        <footer>
+            <p>Generated by Crawlit - A Modular, Ethical Python Web Crawler</p>
+        </footer>
+    </div>
+</body>
+</html>
+"""
+    
+    # Write HTML to file
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(html)
 
 
 def generate_summary_report(results):
