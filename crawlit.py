@@ -31,7 +31,8 @@ def parse_args():
     parser.add_argument("--output-format", "-f", default="json", choices=["json", "csv", "txt"], 
                         help="Output format (json, csv, txt)")
     parser.add_argument("--output", "-O", default="crawl_results.json", help="File to save results")
-    parser.add_argument("--respect-robots", "-r", action="store_true", help="Respect robots.txt rules")
+    parser.add_argument("--ignore-robots", "-i", action="store_true", default=False, 
+                       help="Ignore robots.txt rules when crawling")
     parser.add_argument("--delay", type=float, default=0.1, help="Delay between requests (seconds)")
     parser.add_argument("--user-agent", "-a", default="crawlit/1.0", help="Custom User-Agent string")
     parser.add_argument("--allow-external", "-e", action="store_true", default=False, 
@@ -60,7 +61,8 @@ def main():
             max_depth=args.depth,
             internal_only=not args.allow_external,  # Invert the allow-external flag
             user_agent=args.user_agent,
-            delay=args.delay
+            delay=args.delay,
+            respect_robots=not args.ignore_robots  # Invert the ignore-robots flag
         )
         
         # Start crawling

@@ -9,6 +9,7 @@ from urllib.parse import urlparse, urljoin
 
 from .fetcher import fetch_page
 from .parser import extract_links
+from .robots import RobotsHandler
 
 logger = logging.getLogger(__name__)
 
@@ -16,11 +17,13 @@ class Crawler:
     """Main crawler class that manages the crawling process"""
     
     def __init__(self, start_url, max_depth=3, internal_only=True, 
-                 user_agent="crawlit/1.0", max_retries=3, timeout=10, delay=0.1):
+                 user_agent="crawlit/1.0", max_retries=3, timeout=10, delay=0.1,
+                 respect_robots=True):
         """Initialize the crawler with given parameters"""
         self.start_url = start_url
         self.max_depth = max_depth
         self.internal_only = internal_only
+        self.respect_robots = respect_robots
         self.visited_urls = set()  # Store visited URLs
         self.queue = deque()  # Queue for BFS crawling
         self.results = {}  # Store results with metadata
@@ -35,6 +38,13 @@ class Crawler:
         # Extract domain from start URL for internal-only crawling
         self.base_domain = self._extract_base_domain(start_url)
         logger.info(f"Base domain extracted: {self.base_domain}")
+        
+        # Initialize robots.txt handler if needed
+        self.robots_handler = RobotsHandler() if respect_robots else None
+        if self.respect_robots:
+            logger.info("Robots.txt handling enabled")
+        else:
+            logger.info("Robots.txt handling disabled")
 
     def _extract_base_domain(self, url):
         """Extract the base domain from a URL"""
@@ -118,6 +128,16 @@ class Crawler:
                 logger.debug(f"Skipped external URL: {url}")
             if len(self.skipped_external_urls) > 5:
                 logger.debug(f"... and {len(self.skipped_external_urls) - 5} more")
+        
+        # Report skipped robots.txt paths at the end
+        if self.respect_robots and self.robots_handler:
+            skipped_paths = self.get_skipped_robots_paths()
+            if skipped_paths:
+                logger.info(f"Skipped {len(skipped_paths)} URLs disallowed by robots.txt")
+                for url in skipped_paths[:5]:  # Log first 5 examples
+                    logger.debug(f"Skipped (robots.txt): {url}")
+                if len(skipped_paths) > 5:
+                    logger.debug(f"... and {len(skipped_paths) - 5} more")
     
     def _should_crawl(self, url):
         """Determine if a URL should be crawled based on settings"""
@@ -135,6 +155,11 @@ class Crawler:
                 self.skipped_external_urls.add(url)
                 logger.debug(f"Skipping external URL: {url} (not in {self.base_domain})")
                 return False
+        
+        # Check robots.txt rules if enabled
+        if self.respect_robots and self.robots_handler:
+            if not self.robots_handler.can_fetch(url, self.user_agent):
+                return False
                 
         return True
         
@@ -145,3 +170,9 @@ class Crawler:
     def get_skipped_external_urls(self):
         """Return the list of skipped external URLs"""
         return list(self.skipped_external_urls)
+        
+    def get_skipped_robots_paths(self):
+        """Return the list of URLs skipped due to robots.txt rules"""
+        if self.robots_handler:
+            return self.robots_handler.get_skipped_paths()
+        return []
