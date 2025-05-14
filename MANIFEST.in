@@ -1,31 +1,24 @@
-include LICENSE
 include README.md
 include requirements.txt
 include pyproject.toml
+include LICENSE
 
 # Include documentation
 include *.md
-include docs/*.md
-include docs/*.rst
-include docs/*.txt
 
 # Include examples
 recursive-include examples *
 
 # Include core modules
-recursive-include crawler *
-recursive-include output *
+recursive-include crawlit/crawler *
+recursive-include crawlit/output *
 
 # Include tests
 recursive-include tests *
 
 # Include any data files
-recursive-include crawlit/data *
+# If you have a data directory, uncomment this line
+# recursive-include crawlit/data *
 
 # Global excludes for common temporary/generated files
-global-exclude *.py[cod] __pycache__ *.so .DS_Store
 global-exclude *.egg-info/*
-global-exclude .git*
-global-exclude .coverage
-global-exclude htmlcov/*
-global-exclude *.log

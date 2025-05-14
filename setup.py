@@ -18,7 +18,7 @@ setup(
     long_description_content_type='text/markdown',
     entry_points={
         'console_scripts': [
-            'crawlit=crawlit:main',
+            'crawlit=crawlit.crawlit:main',
         ],
     },
     include_package_data=True,  # Tells setuptools to include files from MANIFEST.in

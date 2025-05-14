@@ -17,8 +17,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Import the crawler components
-from crawler.engine import Crawler
-from output.formatters import save_results, generate_summary_report
+from crawlit.crawler.engine import Crawler
+from crawlit.output.formatters import save_results, generate_summary_report
 
 def parse_args():
     """Parse command line arguments"""

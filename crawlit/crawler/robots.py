@@ -84,3 +84,34 @@ class RobotsHandler:
     def get_skipped_paths(self):
         """Get list of URLs skipped due to robots.txt rules"""
         return self.skipped_paths
+
+# Add RobotsTxt class for backward compatibility with tests
+class RobotsTxt:
+    """
+    Compatibility class for tests that expect a RobotsTxt class
+    This wraps the RobotsHandler class functionality
+    """
+    
+    def __init__(self, url, user_agent="crawlit/1.0"):
+        """
+        Initialize RobotsTxt with a URL and user agent
+        
+        Args:
+            url: Base URL for robots.txt
+            user_agent: User agent to check rules against
+        """
+        self.handler = RobotsHandler()
+        self.url = url
+        self.user_agent = user_agent
+        self.parser = self.handler.get_robots_parser(url)
+    
+    def can_fetch(self, path):
+        """Check if a path can be fetched"""
+        full_url = urllib.parse.urljoin(self.url, path)
+        return self.handler.can_fetch(full_url, self.user_agent)
+    
+    def get_sitemaps(self):
+        """Get sitemaps from robots.txt"""
+        # Since we're using urllib.robotparser, we can access the sitemap URLs
+        # directly from the parser
+        return self.parser.sitemap_urls

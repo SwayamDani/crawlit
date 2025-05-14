@@ -66,3 +66,27 @@ def fetch_page(url, user_agent="crawlit/1.0", max_retries=3, timeout=10):
             return False, str(e), status_code or 500
     
     return False, f"Max retries ({max_retries}) exceeded", status_code or 429
+
+# Add fetch_url as an alias for fetch_page to make tests pass
+# This provides backward compatibility with test code
+def fetch_url(url, user_agent="crawlit/1.0", max_retries=3, timeout=10):
+    """
+    Alias for fetch_page - maintained for backward compatibility with tests
+    
+    Note: Tests expect this function to return just the response object,
+    unlike fetch_page which returns (success, response, status_code)
+    """
+    success, response_or_error, status_code = fetch_page(url, user_agent, max_retries, timeout)
+    
+    # Return just the response object as expected by tests
+    if success:
+        # For success case, tests expect response object
+        return response_or_error
+    else:
+        # For error case, tests expect an exception to be raised
+        if isinstance(response_or_error, str) and "HTTP Error" in response_or_error:
+            # Extract status code from error message and raise proper exception
+            raise requests.exceptions.HTTPError(response_or_error)
+        else:
+            # For other errors, raise a generic exception
+            raise requests.exceptions.RequestException(response_or_error)

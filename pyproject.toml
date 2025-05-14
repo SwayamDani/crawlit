@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Modular, Ethical Python Web Crawler"
 readme = "README.md"
 requires-python = ">=3.8"
-license = {text = "MIT"}
+license = "MIT"
 authors = [
     {name = "Swayam Dani", email = "swayamdani@swayamdani.com"}
 ]
@@ -17,7 +17,6 @@ classifiers = [
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -39,8 +38,8 @@ dependencies = [
 cli = []  # No extra dependencies needed for CLI, but keeps it optional
 
 [project.scripts]
-crawlit = "crawlit:main"
+crawlit = "crawlit.crawlit:main"
 
 [tool.setuptools]
-packages = ["crawlit", "crawler", "output"]
+packages = ["crawlit", "crawlit.crawler", "crawlit.output"]
 include-package-data = true

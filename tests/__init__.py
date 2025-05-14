@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """
-Test package for the crawlit web crawler
+Test suite for crawlit package
 """
 
-# This file makes the tests directory a Python package

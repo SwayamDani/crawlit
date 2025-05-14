@@ -18,8 +18,8 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
 # Import the crawler components
-from crawler.engine import Crawler
-from output.formatters import save_results, generate_summary_report
+from crawlit.crawler.engine import Crawler
+from crawlit.output.formatters import save_results, generate_summary_report
 
 # Setup logging
 logging.basicConfig(
@@ -65,7 +65,8 @@ def main():
         logger.info(f"Skipped {len(skipped_robots)} URLs due to robots.txt rules")
         
         # Example: Access specific types of pages from the results
-        html_pages = [url for url, data in results.items() if data.get('content_type', '').startswith('text/html')]
+        html_pages = [url for url, data in results.items() 
+                     if data.get('content_type') and data.get('content_type').startswith('text/html')]
         logger.info(f"Found {len(html_pages)} HTML pages")
         
         # Example: Filter results by status code
