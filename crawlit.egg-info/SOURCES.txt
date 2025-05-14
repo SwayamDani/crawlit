@@ -1,6 +1,7 @@
 LICENSE
 MANIFEST.in
 README.md
+RELEASE_NOTES.md
 pyproject.toml
 requirements.txt
 setup.py
@@ -18,8 +19,7 @@ examples/programmatic_results.json
 examples/programmatic_usage.py
 tests/__init__.py
 tests/conftest.py
+tests/test_cli.py
 tests/test_engine.py
-tests/test_fetcher.py
-tests/test_formatters.py
-tests/test_parser.py
-tests/test_robots.py
+tests/test_integration.py
+tests/test_library.py

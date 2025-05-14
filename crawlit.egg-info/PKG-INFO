@@ -6,7 +6,7 @@ Author-email: Swayam Dani <swayamdani@swayamdani.com>
 License-Expression: MIT
 Project-URL: Homepage, https://github.com/SwayamDani/crawlit
 Project-URL: Bug Tracker, https://github.com/SwayamDani/crawlit/issues
-Project-URL: Documentation, https://github.com/SwayamDani/crawlit#readme
+Project-URL: Documentation, https://github.com/SwayamDani/crawlit/tree/main/docs
 Classifier: Programming Language :: Python :: 3
 Classifier: Programming Language :: Python :: 3.8
 Classifier: Programming Language :: Python :: 3.9
@@ -81,6 +81,22 @@ pip install -e .
 ```
 
 ## 📘 Usage
+
+### API Documentation
+
+Full API documentation is available in the `docs` directory. To build and view the documentation:
+
+```bash
+# Install Sphinx and required packages
+pip install sphinx sphinx_rtd_theme sphinxcontrib-napoleon
+
+# Build the documentation
+cd docs
+make html  # On Windows: make.bat html
+
+# View the documentation
+# Open docs/_build/html/index.html in your browser
+```
 
 ### As a Library in Your Python Code
 
