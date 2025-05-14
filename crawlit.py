@@ -32,8 +32,8 @@ def parse_args():
     parser.add_argument("--respect-robots", "-r", action="store_true", help="Respect robots.txt rules")
     parser.add_argument("--delay", type=float, default=0.1, help="Delay between requests (seconds)")
     parser.add_argument("--user-agent", default="crawlit/1.0", help="Custom User-Agent string")
-    parser.add_argument("--internal-only", "-i", action="store_true", default=True, 
-                        help="Only crawl URLs within the same domain")
+    parser.add_argument("--allow-external", action="store_true", default=False, 
+                        help="Allow crawling URLs outside the initial domain")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     
     return parser.parse_args()
@@ -51,18 +51,25 @@ def main():
         crawler = Crawler(
             start_url=args.url,
             max_depth=args.depth,
-            internal_only=args.internal_only,
+            internal_only=not args.allow_external,  # Invert the allow-external flag
             user_agent=args.user_agent,
             delay=args.delay
         )
         
         # Start crawling
         logger.info(f"Starting crawl from: {args.url}")
+        logger.info(f"Domain restriction is {'disabled' if args.allow_external else 'enabled'}")
         crawler.crawl()
         
         # Get and output results
         results = crawler.get_results()
         logger.info(f"Crawl complete. Visited {len(results)} URLs.")
+        
+        # Report skipped external URLs if domain restriction is enabled
+        if not args.allow_external and hasattr(crawler, 'get_skipped_external_urls'):
+            skipped = crawler.get_skipped_external_urls()
+            if skipped:
+                logger.info(f"Skipped {len(skipped)} external URLs (use --allow-external to crawl them)")
         
         # Future: Save results to file in the specified format
         # save_results(results, args.output_format, args.output_file)

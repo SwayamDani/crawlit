@@ -5,7 +5,7 @@ engine.py - Core crawler engine
 
 import logging
 from collections import deque
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 
 from .fetcher import fetch_page
 from .parser import extract_links
@@ -24,6 +24,7 @@ class Crawler:
         self.visited_urls = set()  # Store visited URLs
         self.queue = deque()  # Queue for BFS crawling
         self.results = {}  # Store results with metadata
+        self.skipped_external_urls = set()  # Track skipped external URLs
         
         # Request parameters
         self.user_agent = user_agent
@@ -32,8 +33,14 @@ class Crawler:
         self.delay = delay
         
         # Extract domain from start URL for internal-only crawling
-        parsed_url = urlparse(start_url)
-        self.base_domain = parsed_url.netloc
+        self.base_domain = self._extract_base_domain(start_url)
+        logger.info(f"Base domain extracted: {self.base_domain}")
+
+    def _extract_base_domain(self, url):
+        """Extract the base domain from a URL"""
+        parsed_url = urlparse(url)
+        # Return the domain without any subdomain/port
+        return parsed_url.netloc
 
     def crawl(self):
         """Start the crawling process"""
@@ -103,6 +110,14 @@ class Crawler:
                 # Store the error information
                 logger.error(f"Failed to fetch {current_url}: {response_or_error}")
                 self.results[current_url]['error'] = response_or_error
+        
+        # Report skipped external URLs at the end
+        if self.skipped_external_urls and self.internal_only:
+            logger.info(f"Skipped {len(self.skipped_external_urls)} external URLs due to domain restriction")
+            for url in list(self.skipped_external_urls)[:5]:  # Log first 5 examples
+                logger.debug(f"Skipped external URL: {url}")
+            if len(self.skipped_external_urls) > 5:
+                logger.debug(f"... and {len(self.skipped_external_urls) - 5} more")
     
     def _should_crawl(self, url):
         """Determine if a URL should be crawled based on settings"""
@@ -113,7 +128,12 @@ class Crawler:
         # Check if URL is internal when internal_only is True
         if self.internal_only:
             parsed_url = urlparse(url)
-            if parsed_url.netloc != self.base_domain:
+            url_domain = parsed_url.netloc
+            
+            if url_domain != self.base_domain:
+                # Add to skipped external URLs set for logging
+                self.skipped_external_urls.add(url)
+                logger.debug(f"Skipping external URL: {url} (not in {self.base_domain})")
                 return False
                 
         return True
@@ -121,3 +141,7 @@ class Crawler:
     def get_results(self):
         """Return the crawl results"""
         return list(self.visited_urls)
+        
+    def get_skipped_external_urls(self):
+        """Return the list of skipped external URLs"""
+        return list(self.skipped_external_urls)
