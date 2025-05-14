@@ -177,7 +177,7 @@ class Crawler:
         
     def _extract_links(self, html_content, base_url):
         """
-        Extract links from HTML content
+        Extract links from HTML content from various elements
         
         Args:
             html_content: The HTML content to parse
@@ -193,28 +193,65 @@ class Crawler:
         time.sleep(self.delay)
         
         soup = BeautifulSoup(html_content, 'lxml')
-        links = []
+        links = set()  # Using a set to avoid duplicates
         
-        # Find all anchor tags
-        for a_tag in soup.find_all('a', href=True):
-            href = a_tag['href'].strip()
-            
-            # Skip empty links and javascript links
-            if not href or href.startswith('javascript:') or href == '#':
-                continue
+        # Dictionary of elements and their attributes that may contain URLs
+        elements_to_extract = {
+            'a': 'href',
+            'img': 'src',
+            'script': 'src',
+            'link': 'href',
+            'iframe': 'src',
+            'video': 'src',
+            'audio': 'src',
+            'source': 'src',
+            'form': 'action'
+        }
+        
+        # Extract links from each element type
+        for tag_name, attr_name in elements_to_extract.items():
+            for tag in soup.find_all(tag_name, {attr_name: True}):
+                url = tag[attr_name].strip()
                 
-            # Convert relative URLs to absolute
-            absolute_url = urljoin(base_url, href)
+                # Process the URL
+                processed_url = self._process_url(url, base_url)
+                if processed_url:
+                    links.add(processed_url)
+        
+        return list(links)
+    
+    def _process_url(self, url, base_url):
+        """
+        Process a URL: normalize, filter, and convert to absolute
+        
+        Args:
+            url: The URL to process
+            base_url: The base URL for resolving relative links
             
-            # Normalize the URL (remove fragments, etc.)
-            parsed = urlparse(absolute_url)
-            normalized_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-            if parsed.query:
-                normalized_url += f"?{parsed.query}"
+        Returns:
+            str: Processed URL or None if URL should be filtered out
+        """
+        # Skip empty links, javascript links, mailto links, tel links, etc.
+        if (not url or 
+            url.startswith(('javascript:', 'mailto:', 'tel:', '#', 'data:'))):
+            return None
                 
-            links.append(normalized_url)
+        # Convert relative URLs to absolute
+        absolute_url = urljoin(base_url, url)
+        
+        # Parse the URL
+        parsed = urlparse(absolute_url)
+        
+        # Skip non-HTTP URLs
+        if parsed.scheme not in ('http', 'https'):
+            return None
+        
+        # Normalize the URL (remove fragments, etc.)
+        normalized_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        if parsed.query:
+            normalized_url += f"?{parsed.query}"
             
-        return links
+        return normalized_url
         
     def get_results(self):
         """Return the crawl results"""
