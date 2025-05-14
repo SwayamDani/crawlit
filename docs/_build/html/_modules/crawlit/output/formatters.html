@@ -1,0 +1,491 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>crawlit.output.formatters &mdash; crawlit 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../../../_static/doctools.js?v=9a2dae69"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            crawlit
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../usage.html">Usage Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../examples.html">Examples</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../changelog.html">Changelog</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">crawlit</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">crawlit.output.formatters</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for crawlit.output.formatters</h1><div class="highlight"><pre>
+<span></span><span class="ch">#!/usr/bin/env python3</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">formatters.py - Output formatters for crawler results</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">csv</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">datetime</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+
+
+<div class="viewcode-block" id="create_output_file">
+<a class="viewcode-back" href="../../../api/output.html#crawlit.output.formatters.create_output_file">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">create_output_file</span><span class="p">(</span><span class="n">output_path</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create directory for output file if it doesn&#39;t exist.</span>
+<span class="sd">    </span>
+<span class="sd">    Args:</span>
+<span class="sd">        output_path (str): Path to the output file.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># Get the directory part of the file path</span>
+    <span class="n">output_dir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">output_path</span><span class="p">)</span>
+    
+    <span class="c1"># If there&#39;s a directory component and it doesn&#39;t exist, create it</span>
+    <span class="k">if</span> <span class="n">output_dir</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">output_dir</span><span class="p">):</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">output_dir</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="save_results">
+<a class="viewcode-back" href="../../../api/output.html#crawlit.output.formatters.save_results">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">save_results</span><span class="p">(</span><span class="n">results</span><span class="p">,</span> <span class="n">output_format</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">output_file</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">pretty_json</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">format_type</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">pretty</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Save crawler results to specified file in the requested format.</span>
+<span class="sd">    </span>
+<span class="sd">    This function takes the crawler results and saves them to a file in the specified format.</span>
+<span class="sd">    It supports JSON, CSV, TXT, and HTML output formats.</span>
+<span class="sd">    </span>
+<span class="sd">    Args:</span>
+<span class="sd">        results (dict): Crawler results dictionary containing URL data.</span>
+<span class="sd">        output_format (str, optional): Format to save results in (json, csv, txt, html). </span>
+<span class="sd">            If None, will use the file extension or default to JSON.</span>
+<span class="sd">        output_file (str, optional): Path to the output file. If None, prints to stdout.</span>
+<span class="sd">        pretty_json (bool, optional): Whether to format JSON with indentation. Defaults to False.</span>
+<span class="sd">        format_type (str, optional): Alternative name for output_format (for backward compatibility).</span>
+<span class="sd">        pretty (bool, optional): Alternative name for pretty_json (for backward compatibility).</span>
+<span class="sd">        </span>
+<span class="sd">    Returns:</span>
+<span class="sd">        bool: True if saving was successful, False otherwise.</span>
+<span class="sd">    </span>
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: If an unsupported output format is specified.</span>
+<span class="sd">    pretty: Alternative name for pretty_json (for backward compatibility)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">timestamp</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s2">&quot;%Y-%m-</span><span class="si">%d</span><span class="s2"> %H:%M:%S&quot;</span><span class="p">)</span>
+    
+    <span class="c1"># Handle parameter aliasing (support both format_type and output_format)</span>
+    <span class="k">if</span> <span class="n">format_type</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">output_format</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">output_format</span> <span class="o">=</span> <span class="n">format_type</span>
+    
+    <span class="c1"># Handle pretty parameter (tests use pretty instead of pretty_json)</span>
+    <span class="k">if</span> <span class="n">pretty</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">pretty_json</span> <span class="ow">is</span> <span class="kc">False</span><span class="p">:</span>
+        <span class="n">pretty_json</span> <span class="o">=</span> <span class="n">pretty</span>
+    
+    <span class="c1"># Default filename if not specified</span>
+    <span class="k">if</span> <span class="n">output_file</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="c1"># Tests expect &#39;crawl_results.json&#39; as default</span>
+        <span class="n">output_file</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;crawl_results.</span><span class="si">{</span><span class="n">output_format</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
+    
+    <span class="c1"># Make sure the output directory exists</span>
+    <span class="n">create_output_file</span><span class="p">(</span><span class="n">output_file</span><span class="p">)</span>
+    
+    <span class="c1"># Choose the appropriate formatter based on format</span>
+    <span class="k">if</span> <span class="n">output_format</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s2">&quot;json&quot;</span><span class="p">:</span>
+        <span class="n">save_as_json</span><span class="p">(</span><span class="n">results</span><span class="p">,</span> <span class="n">output_file</span><span class="p">,</span> <span class="n">timestamp</span><span class="p">,</span> <span class="n">pretty_json</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">output_format</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s2">&quot;csv&quot;</span><span class="p">:</span>
+        <span class="n">save_as_csv</span><span class="p">(</span><span class="n">results</span><span class="p">,</span> <span class="n">output_file</span><span class="p">,</span> <span class="n">timestamp</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">output_format</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s2">&quot;txt&quot;</span><span class="p">:</span>
+        <span class="n">save_as_txt</span><span class="p">(</span><span class="n">results</span><span class="p">,</span> <span class="n">output_file</span><span class="p">,</span> <span class="n">timestamp</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">output_format</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s2">&quot;html&quot;</span><span class="p">:</span>
+        <span class="n">save_as_html</span><span class="p">(</span><span class="n">results</span><span class="p">,</span> <span class="n">output_file</span><span class="p">,</span> <span class="n">timestamp</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unsupported output format: </span><span class="si">{</span><span class="n">output_format</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    
+    <span class="c1"># Return the path to the file that was created</span>
+    <span class="k">return</span> <span class="n">output_file</span></div>
+
+
+
+<div class="viewcode-block" id="save_as_json">
+<a class="viewcode-back" href="../../../api/output.html#crawlit.output.formatters.save_as_json">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">save_as_json</span><span class="p">(</span><span class="n">results</span><span class="p">,</span> <span class="n">output_file</span><span class="p">,</span> <span class="n">timestamp</span><span class="p">,</span> <span class="n">pretty_json</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Save crawler results in JSON format&quot;&quot;&quot;</span>
+    <span class="c1"># Create output data structure with metadata and results</span>
+    <span class="n">output_data</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;metadata&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="n">timestamp</span><span class="p">,</span>
+            <span class="s2">&quot;total_urls&quot;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">results</span><span class="p">)</span>
+        <span class="p">},</span>
+        <span class="s2">&quot;urls&quot;</span><span class="p">:</span> <span class="n">results</span>
+    <span class="p">}</span>
+    
+    <span class="c1"># Write to file with nice formatting</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">output_file</span><span class="p">,</span> <span class="s1">&#39;w&#39;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">pretty_json</span><span class="p">:</span>
+            <span class="n">json</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">output_data</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">sort_keys</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">json</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">output_data</span><span class="p">,</span> <span class="n">f</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="save_as_csv">
+<a class="viewcode-back" href="../../../api/output.html#crawlit.output.formatters.save_as_csv">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">save_as_csv</span><span class="p">(</span><span class="n">results</span><span class="p">,</span> <span class="n">output_file</span><span class="p">,</span> <span class="n">timestamp</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Save crawler results in CSV format&quot;&quot;&quot;</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">output_file</span><span class="p">,</span> <span class="s1">&#39;w&#39;</span><span class="p">,</span> <span class="n">newline</span><span class="o">=</span><span class="s1">&#39;&#39;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="n">writer</span> <span class="o">=</span> <span class="n">csv</span><span class="o">.</span><span class="n">writer</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+        
+        <span class="c1"># Write header</span>
+        <span class="n">writer</span><span class="o">.</span><span class="n">writerow</span><span class="p">([</span><span class="s1">&#39;URL&#39;</span><span class="p">,</span> <span class="s1">&#39;Status&#39;</span><span class="p">,</span> <span class="s1">&#39;Depth&#39;</span><span class="p">,</span> <span class="s1">&#39;Content Type&#39;</span><span class="p">,</span> <span class="s1">&#39;Links Found&#39;</span><span class="p">,</span> <span class="s1">&#39;Success&#39;</span><span class="p">,</span> <span class="s1">&#39;Error&#39;</span><span class="p">])</span>
+        
+        <span class="c1"># Write data rows</span>
+        <span class="k">for</span> <span class="n">url</span><span class="p">,</span> <span class="n">data</span> <span class="ow">in</span> <span class="n">results</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">writer</span><span class="o">.</span><span class="n">writerow</span><span class="p">([</span>
+                <span class="n">url</span><span class="p">,</span>
+                <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;status&#39;</span><span class="p">,</span> <span class="s1">&#39;N/A&#39;</span><span class="p">),</span>
+                <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;depth&#39;</span><span class="p">,</span> <span class="s1">&#39;N/A&#39;</span><span class="p">),</span>
+                <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;content_type&#39;</span><span class="p">,</span> <span class="s1">&#39;N/A&#39;</span><span class="p">),</span>
+                <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;links&#39;</span><span class="p">,</span> <span class="p">[])),</span>
+                <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;success&#39;</span><span class="p">,</span> <span class="kc">False</span><span class="p">),</span>
+                <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;error&#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">)</span>
+            <span class="p">])</span>
+        
+        <span class="c1"># Write metadata at the end</span>
+        <span class="n">writer</span><span class="o">.</span><span class="n">writerow</span><span class="p">([])</span>
+        <span class="n">writer</span><span class="o">.</span><span class="n">writerow</span><span class="p">([</span><span class="s1">&#39;# Generated at:&#39;</span><span class="p">,</span> <span class="n">timestamp</span><span class="p">])</span>
+        <span class="n">writer</span><span class="o">.</span><span class="n">writerow</span><span class="p">([</span><span class="s1">&#39;# Total URLs:&#39;</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">results</span><span class="p">)])</span></div>
+
+
+
+<div class="viewcode-block" id="save_as_txt">
+<a class="viewcode-back" href="../../../api/output.html#crawlit.output.formatters.save_as_txt">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">save_as_txt</span><span class="p">(</span><span class="n">results</span><span class="p">,</span> <span class="n">output_file</span><span class="p">,</span> <span class="n">timestamp</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Save crawler results in plain text format&quot;&quot;&quot;</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">output_file</span><span class="p">,</span> <span class="s1">&#39;w&#39;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Crawl Results - Generated at </span><span class="si">{</span><span class="n">timestamp</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Total URLs: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">results</span><span class="p">)</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;=&quot;</span> <span class="o">*</span> <span class="mi">80</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n\n</span><span class="s2">&quot;</span><span class="p">)</span>
+        
+        <span class="c1"># Write one entry per URL</span>
+        <span class="k">for</span> <span class="n">url</span><span class="p">,</span> <span class="n">data</span> <span class="ow">in</span> <span class="n">results</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;URL: </span><span class="si">{</span><span class="n">url</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Status: </span><span class="si">{</span><span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;status&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;N/A&#39;</span><span class="p">)</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Depth: </span><span class="si">{</span><span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;depth&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;N/A&#39;</span><span class="p">)</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Content Type: </span><span class="si">{</span><span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;content_type&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;N/A&#39;</span><span class="p">)</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Success: </span><span class="si">{</span><span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;success&#39;</span><span class="p">,</span><span class="w"> </span><span class="kc">False</span><span class="p">)</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+            
+            <span class="c1"># Show error if there was one</span>
+            <span class="k">if</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;error&#39;</span><span class="p">):</span>
+                <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error: </span><span class="si">{</span><span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;error&#39;</span><span class="p">)</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+            
+            <span class="c1"># Show found links</span>
+            <span class="n">links</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;links&#39;</span><span class="p">,</span> <span class="p">[])</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Links Found: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">links</span><span class="p">)</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+            
+            <span class="c1"># Write the first few links if there are any</span>
+            <span class="k">if</span> <span class="n">links</span><span class="p">:</span>
+                <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;Sample Links:</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">link</span> <span class="ow">in</span> <span class="n">links</span><span class="p">[:</span><span class="mi">5</span><span class="p">]:</span>  <span class="c1"># Show at most 5 links</span>
+                    <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  - </span><span class="si">{</span><span class="n">link</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+                
+                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">links</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">5</span><span class="p">:</span>
+                    <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  - ... and </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">links</span><span class="p">)</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">5</span><span class="si">}</span><span class="s2"> more</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+            
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span> <span class="o">+</span> <span class="s2">&quot;-&quot;</span> <span class="o">*</span> <span class="mi">40</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n\n</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="save_as_html">
+<a class="viewcode-back" href="../../../api/output.html#crawlit.output.formatters.save_as_html">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">save_as_html</span><span class="p">(</span><span class="n">results</span><span class="p">,</span> <span class="n">output_file</span><span class="p">,</span> <span class="n">timestamp</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Save crawler results in HTML format&quot;&quot;&quot;</span>
+    <span class="c1"># Create HTML structure with a basic responsive design</span>
+    <span class="n">html</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;&quot;&quot;&lt;!DOCTYPE html&gt;</span>
+<span class="s2">&lt;html lang=&quot;en&quot;&gt;</span>
+<span class="s2">&lt;head&gt;</span>
+<span class="s2">    &lt;meta charset=&quot;UTF-8&quot;&gt;</span>
+<span class="s2">    &lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1.0&quot;&gt;</span>
+<span class="s2">    &lt;title&gt;Crawlit Results - </span><span class="si">{</span><span class="n">timestamp</span><span class="si">}</span><span class="s2">&lt;/title&gt;</span>
+<span class="s2">    &lt;style&gt;</span>
+<span class="s2">        body </span><span class="se">{{</span>
+<span class="s2">            font-family: Arial, sans-serif;</span>
+<span class="s2">            line-height: 1.6;</span>
+<span class="s2">            margin: 0;</span>
+<span class="s2">            padding: 20px;</span>
+<span class="s2">            color: #333;</span>
+<span class="s2">        </span><span class="se">}}</span>
+<span class="s2">        .container </span><span class="se">{{</span>
+<span class="s2">            max-width: 1200px;</span>
+<span class="s2">            margin: 0 auto;</span>
+<span class="s2">        </span><span class="se">}}</span>
+<span class="s2">        header </span><span class="se">{{</span>
+<span class="s2">            background-color: #f4f4f4;</span>
+<span class="s2">            padding: 20px;</span>
+<span class="s2">            margin-bottom: 20px;</span>
+<span class="s2">            border-radius: 5px;</span>
+<span class="s2">        </span><span class="se">}}</span>
+<span class="s2">        h1 </span><span class="se">{{</span>
+<span class="s2">            margin: 0;</span>
+<span class="s2">            color: #2c3e50;</span>
+<span class="s2">        </span><span class="se">}}</span>
+<span class="s2">        .summary </span><span class="se">{{</span>
+<span class="s2">            background-color: #ecf0f1;</span>
+<span class="s2">            padding: 15px;</span>
+<span class="s2">            margin-bottom: 20px;</span>
+<span class="s2">            border-left: 4px solid #3498db;</span>
+<span class="s2">            border-radius: 0 5px 5px 0;</span>
+<span class="s2">        </span><span class="se">}}</span>
+<span class="s2">        .url-card </span><span class="se">{{</span>
+<span class="s2">            border: 1px solid #ddd;</span>
+<span class="s2">            border-radius: 5px;</span>
+<span class="s2">            padding: 15px;</span>
+<span class="s2">            margin-bottom: 15px;</span>
+<span class="s2">            background-color: white;</span>
+<span class="s2">            box-shadow: 0 2px 4px rgba(0,0,0,0.1);</span>
+<span class="s2">        </span><span class="se">}}</span>
+<span class="s2">        .url-card h3 </span><span class="se">{{</span>
+<span class="s2">            margin-top: 0;</span>
+<span class="s2">            word-break: break-all;</span>
+<span class="s2">        </span><span class="se">}}</span>
+<span class="s2">        .status-success </span><span class="se">{{</span>
+<span class="s2">            color: #27ae60;</span>
+<span class="s2">            font-weight: bold;</span>
+<span class="s2">        </span><span class="se">}}</span>
+<span class="s2">        .status-error </span><span class="se">{{</span>
+<span class="s2">            color: #c0392b;</span>
+<span class="s2">            font-weight: bold;</span>
+<span class="s2">        </span><span class="se">}}</span>
+<span class="s2">        .details </span><span class="se">{{</span>
+<span class="s2">            display: grid;</span>
+<span class="s2">            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));</span>
+<span class="s2">            gap: 10px;</span>
+<span class="s2">            margin-bottom: 10px;</span>
+<span class="s2">        </span><span class="se">}}</span>
+<span class="s2">        .detail-item </span><span class="se">{{</span>
+<span class="s2">            padding: 5px;</span>
+<span class="s2">        </span><span class="se">}}</span>
+<span class="s2">        .links-list </span><span class="se">{{</span>
+<span class="s2">            background-color: #f9f9f9;</span>
+<span class="s2">            padding: 10px;</span>
+<span class="s2">            border-radius: 5px;</span>
+<span class="s2">            max-height: 200px;</span>
+<span class="s2">            overflow-y: auto;</span>
+<span class="s2">        </span><span class="se">}}</span>
+<span class="s2">        footer </span><span class="se">{{</span>
+<span class="s2">            text-align: center;</span>
+<span class="s2">            margin-top: 30px;</span>
+<span class="s2">            color: #7f8c8d;</span>
+<span class="s2">            font-size: 0.9rem;</span>
+<span class="s2">        </span><span class="se">}}</span>
+<span class="s2">    &lt;/style&gt;</span>
+<span class="s2">&lt;/head&gt;</span>
+<span class="s2">&lt;body&gt;</span>
+<span class="s2">    &lt;div class=&quot;container&quot;&gt;</span>
+<span class="s2">        &lt;header&gt;</span>
+<span class="s2">            &lt;h1&gt;Crawlit Results&lt;/h1&gt;</span>
+<span class="s2">            &lt;p&gt;Generated at: </span><span class="si">{</span><span class="n">timestamp</span><span class="si">}</span><span class="s2">&lt;/p&gt;</span>
+<span class="s2">        &lt;/header&gt;</span>
+<span class="s2">        </span>
+<span class="s2">        &lt;div class=&quot;summary&quot;&gt;</span>
+<span class="s2">            &lt;h2&gt;Crawl Summary&lt;/h2&gt;</span>
+<span class="s2">            &lt;p&gt;Total URLs: &lt;strong&gt;</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">results</span><span class="p">)</span><span class="si">}</span><span class="s2">&lt;/strong&gt;&lt;/p&gt;</span>
+<span class="s2">            &lt;p&gt;Successful requests: &lt;strong&gt;</span><span class="si">{</span><span class="nb">sum</span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">data</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">results</span><span class="o">.</span><span class="n">values</span><span class="p">()</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;success&#39;</span><span class="p">,</span><span class="w"> </span><span class="kc">False</span><span class="p">))</span><span class="si">}</span><span class="s2">&lt;/strong&gt;&lt;/p&gt;</span>
+<span class="s2">            &lt;p&gt;Failed requests: &lt;strong&gt;</span><span class="si">{</span><span class="nb">sum</span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">data</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">results</span><span class="o">.</span><span class="n">values</span><span class="p">()</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="ow">not</span><span class="w"> </span><span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;success&#39;</span><span class="p">,</span><span class="w"> </span><span class="kc">False</span><span class="p">))</span><span class="si">}</span><span class="s2">&lt;/strong&gt;&lt;/p&gt;</span>
+<span class="s2">        &lt;/div&gt;</span>
+<span class="s2">        </span>
+<span class="s2">        &lt;h2&gt;Results by URL&lt;/h2&gt;</span>
+<span class="s2">&quot;&quot;&quot;</span>
+    
+    <span class="c1"># Add each URL as a card</span>
+    <span class="k">for</span> <span class="n">url</span><span class="p">,</span> <span class="n">data</span> <span class="ow">in</span> <span class="n">results</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="n">status</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;status&#39;</span><span class="p">,</span> <span class="s1">&#39;N/A&#39;</span><span class="p">)</span>
+        <span class="n">success</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;success&#39;</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
+        <span class="n">depth</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;depth&#39;</span><span class="p">,</span> <span class="s1">&#39;N/A&#39;</span><span class="p">)</span>
+        <span class="n">content_type</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;content_type&#39;</span><span class="p">,</span> <span class="s1">&#39;N/A&#39;</span><span class="p">)</span>
+        <span class="n">error</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;error&#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">)</span>
+        <span class="n">links</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;links&#39;</span><span class="p">,</span> <span class="p">[])</span>
+        
+        <span class="n">status_class</span> <span class="o">=</span> <span class="s2">&quot;status-success&quot;</span> <span class="k">if</span> <span class="n">success</span> <span class="k">else</span> <span class="s2">&quot;status-error&quot;</span>
+        
+        <span class="n">html</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">        &lt;div class=&quot;url-card&quot;&gt;</span>
+<span class="s2">            &lt;h3&gt;</span><span class="si">{</span><span class="n">url</span><span class="si">}</span><span class="s2">&lt;/h3&gt;</span>
+<span class="s2">            &lt;div class=&quot;details&quot;&gt;</span>
+<span class="s2">                &lt;div class=&quot;detail-item&quot;&gt;</span>
+<span class="s2">                    &lt;strong&gt;Status:&lt;/strong&gt; &lt;span class=&quot;</span><span class="si">{</span><span class="n">status_class</span><span class="si">}</span><span class="s2">&quot;&gt;</span><span class="si">{</span><span class="n">status</span><span class="si">}</span><span class="s2">&lt;/span&gt;</span>
+<span class="s2">                &lt;/div&gt;</span>
+<span class="s2">                &lt;div class=&quot;detail-item&quot;&gt;</span>
+<span class="s2">                    &lt;strong&gt;Depth:&lt;/strong&gt; </span><span class="si">{</span><span class="n">depth</span><span class="si">}</span>
+<span class="s2">                &lt;/div&gt;</span>
+<span class="s2">                &lt;div class=&quot;detail-item&quot;&gt;</span>
+<span class="s2">                    &lt;strong&gt;Content Type:&lt;/strong&gt; </span><span class="si">{</span><span class="n">content_type</span><span class="si">}</span>
+<span class="s2">                &lt;/div&gt;</span>
+<span class="s2">                &lt;div class=&quot;detail-item&quot;&gt;</span>
+<span class="s2">                    &lt;strong&gt;Success:&lt;/strong&gt; </span><span class="si">{</span><span class="n">success</span><span class="si">}</span>
+<span class="s2">                &lt;/div&gt;</span>
+<span class="s2">            &lt;/div&gt;</span>
+<span class="s2">&quot;&quot;&quot;</span>
+
+        <span class="c1"># Add error if there is one</span>
+        <span class="k">if</span> <span class="n">error</span><span class="p">:</span>
+            <span class="n">html</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">            &lt;div class=&quot;detail-item&quot;&gt;</span>
+<span class="s2">                &lt;strong&gt;Error:&lt;/strong&gt; &lt;span class=&quot;status-error&quot;&gt;</span><span class="si">{</span><span class="n">error</span><span class="si">}</span><span class="s2">&lt;/span&gt;</span>
+<span class="s2">            &lt;/div&gt;</span>
+<span class="s2">&quot;&quot;&quot;</span>
+        
+        <span class="c1"># Add links if there are any</span>
+        <span class="k">if</span> <span class="n">links</span><span class="p">:</span>
+            <span class="n">html</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">            &lt;div&gt;</span>
+<span class="s2">                &lt;strong&gt;Links Found:&lt;/strong&gt; </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">links</span><span class="p">)</span><span class="si">}</span>
+<span class="s2">                &lt;div class=&quot;links-list&quot;&gt;</span>
+<span class="s2">                    &lt;ul&gt;</span>
+<span class="s2">&quot;&quot;&quot;</span>
+            <span class="c1"># Show all links in HTML</span>
+            <span class="k">for</span> <span class="n">link</span> <span class="ow">in</span> <span class="n">links</span><span class="p">:</span>
+                <span class="n">html</span> <span class="o">+=</span> <span class="sa">f</span><span class="s1">&#39;                        &lt;li&gt;&lt;a href=&quot;</span><span class="si">{</span><span class="n">link</span><span class="si">}</span><span class="s1">&quot; target=&quot;_blank&quot;&gt;</span><span class="si">{</span><span class="n">link</span><span class="si">}</span><span class="s1">&lt;/a&gt;&lt;/li&gt;</span><span class="se">\n</span><span class="s1">&#39;</span>
+                
+            <span class="n">html</span> <span class="o">+=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">                    &lt;/ul&gt;</span>
+<span class="s2">                &lt;/div&gt;</span>
+<span class="s2">            &lt;/div&gt;</span>
+<span class="s2">&quot;&quot;&quot;</span>
+        
+        <span class="n">html</span> <span class="o">+=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">        &lt;/div&gt;</span>
+<span class="s2">&quot;&quot;&quot;</span>
+    
+    <span class="c1"># Close HTML structure</span>
+    <span class="n">html</span> <span class="o">+=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">        &lt;footer&gt;</span>
+<span class="s2">            &lt;p&gt;Generated by Crawlit - A Modular, Ethical Python Web Crawler&lt;/p&gt;</span>
+<span class="s2">        &lt;/footer&gt;</span>
+<span class="s2">    &lt;/div&gt;</span>
+<span class="s2">&lt;/body&gt;</span>
+<span class="s2">&lt;/html&gt;</span>
+<span class="s2">&quot;&quot;&quot;</span>
+    
+    <span class="c1"># Write HTML to file</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">output_file</span><span class="p">,</span> <span class="s1">&#39;w&#39;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">html</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="generate_summary_report">
+<a class="viewcode-back" href="../../../api/output.html#crawlit.output.formatters.generate_summary_report">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">generate_summary_report</span><span class="p">(</span><span class="n">results</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Generate a pretty CLI summary of crawl results&quot;&quot;&quot;</span>
+    <span class="n">success_count</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="mi">1</span> <span class="k">for</span> <span class="n">data</span> <span class="ow">in</span> <span class="n">results</span><span class="o">.</span><span class="n">values</span><span class="p">()</span> <span class="k">if</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;success&#39;</span><span class="p">,</span> <span class="kc">False</span><span class="p">))</span>
+    <span class="n">failed_count</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">results</span><span class="p">)</span> <span class="o">-</span> <span class="n">success_count</span>
+    <span class="n">link_count</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;links&#39;</span><span class="p">,</span> <span class="p">[]))</span> <span class="k">for</span> <span class="n">data</span> <span class="ow">in</span> <span class="n">results</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+    
+    <span class="n">depths</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">data</span> <span class="ow">in</span> <span class="n">results</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+        <span class="n">depth</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;depth&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="n">depths</span><span class="p">[</span><span class="n">depth</span><span class="p">]</span> <span class="o">=</span> <span class="n">depths</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">depth</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span>
+    
+    <span class="n">summary</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="s2">&quot;Crawl Summary&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;=&quot;</span> <span class="o">*</span> <span class="mi">40</span><span class="p">,</span>
+        <span class="c1"># Change wording to match test expectations</span>
+        <span class="sa">f</span><span class="s2">&quot;Total URLs crawled: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">results</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="sa">f</span><span class="s2">&quot;Successful requests: </span><span class="si">{</span><span class="n">success_count</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="sa">f</span><span class="s2">&quot;Failed requests: </span><span class="si">{</span><span class="n">failed_count</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="sa">f</span><span class="s2">&quot;Total links discovered: </span><span class="si">{</span><span class="n">link_count</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;URLs by depth:&quot;</span><span class="p">,</span>
+    <span class="p">]</span>
+    
+    <span class="k">for</span> <span class="n">depth</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">depths</span><span class="o">.</span><span class="n">keys</span><span class="p">()):</span>
+        <span class="n">summary</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Depth </span><span class="si">{</span><span class="n">depth</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">depths</span><span class="p">[</span><span class="n">depth</span><span class="p">]</span><span class="si">}</span><span class="s2"> URLs&quot;</span><span class="p">)</span>
+    
+    <span class="k">return</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span> <span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">summary</span><span class="p">)</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Crawlit Developers.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

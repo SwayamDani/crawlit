@@ -14,12 +14,35 @@ from .robots import RobotsHandler
 logger = logging.getLogger(__name__)
 
 class Crawler:
-    """Main crawler class that manages the crawling process"""
+    """Main crawler class that manages the crawling process.
+    
+    This class provides the core functionality for crawling web pages,
+    extracting links, and following them according to the specified rules.
+    
+    Attributes:
+        start_url (str): The starting URL for the crawler.
+        max_depth (int): Maximum depth of crawling from the start URL.
+        internal_only (bool): Whether to restrict crawling to the same domain.
+        respect_robots (bool): Whether to respect robots.txt rules.
+        visited_urls (set): Set of URLs already visited.
+        results (dict): Dictionary containing crawl results and metadata.
+    """
     
     def __init__(self, start_url, max_depth=3, internal_only=True, 
                  user_agent="crawlit/1.0", max_retries=3, timeout=10, delay=0.1,
                  respect_robots=True):
-        """Initialize the crawler with given parameters"""
+        """Initialize the crawler with given parameters.
+        
+        Args:
+            start_url (str): The URL where crawling will begin.
+            max_depth (int, optional): Maximum crawling depth. Defaults to 3.
+            internal_only (bool, optional): Whether to stay within the same domain. Defaults to True.
+            user_agent (str, optional): User agent string to use in HTTP requests. Defaults to "crawlit/1.0".
+            max_retries (int, optional): Maximum number of retry attempts for failed requests. Defaults to 3.
+            timeout (int, optional): Request timeout in seconds. Defaults to 10.
+            delay (float, optional): Delay between requests in seconds. Defaults to 0.1.
+            respect_robots (bool, optional): Whether to respect robots.txt rules. Defaults to True.
+        """
         self.start_url = start_url
         self.max_depth = max_depth
         self.internal_only = internal_only

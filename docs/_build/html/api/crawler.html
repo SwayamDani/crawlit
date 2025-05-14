@@ -1,0 +1,418 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Crawler Module &mdash; crawlit 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9a2dae69"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Output Module" href="output.html" />
+    <link rel="prev" title="API Reference" href="index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            crawlit
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../usage.html">Usage Guide</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">API Reference</a><ul class="current">
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Crawler Module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#crawler-engine">Crawler Engine</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#crawlit.crawler.engine.Crawler"><code class="docutils literal notranslate"><span class="pre">Crawler</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#page-fetcher">Page Fetcher</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#crawlit.crawler.fetcher.fetch_page"><code class="docutils literal notranslate"><span class="pre">fetch_page()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#crawlit.crawler.fetcher.fetch_url"><code class="docutils literal notranslate"><span class="pre">fetch_url()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#html-parser">HTML Parser</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#crawlit.crawler.parser.extract_links"><code class="docutils literal notranslate"><span class="pre">extract_links()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#robots-txt-handler">Robots.txt Handler</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#crawlit.crawler.robots.RobotsHandler"><code class="docutils literal notranslate"><span class="pre">RobotsHandler</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#crawlit.crawler.robots.RobotsTxt"><code class="docutils literal notranslate"><span class="pre">RobotsTxt</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="output.html">Output Module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli.html">Command Line Interface</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../examples.html">Examples</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../changelog.html">Changelog</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">crawlit</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">API Reference</a></li>
+      <li class="breadcrumb-item active">Crawler Module</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/api/crawler.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="crawler-module">
+<h1>Crawler Module<a class="headerlink" href="#crawler-module" title="Link to this heading"></a></h1>
+<p>The crawler module provides the core functionality for crawling websites.</p>
+<section id="crawler-engine">
+<h2>Crawler Engine<a class="headerlink" href="#crawler-engine" title="Link to this heading"></a></h2>
+<p id="module-crawlit.crawler.engine">engine.py - Core crawler engine</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="crawlit.crawler.engine.Crawler">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">crawlit.crawler.engine.</span></span><span class="sig-name descname"><span class="pre">Crawler</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">start_url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_depth</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">3</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">internal_only</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">user_agent</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'crawlit/1.0'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_retries</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">3</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">timeout</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">delay</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">respect_robots</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/crawlit/crawler/engine.html#Crawler"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#crawlit.crawler.engine.Crawler" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Main crawler class that manages the crawling process.</p>
+<p>This class provides the core functionality for crawling web pages,
+extracting links, and following them according to the specified rules.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="crawlit.crawler.engine.Crawler.start_url">
+<span class="sig-name descname"><span class="pre">start_url</span></span><a class="headerlink" href="#crawlit.crawler.engine.Crawler.start_url" title="Link to this definition"></a></dt>
+<dd><p>The starting URL for the crawler.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="crawlit.crawler.engine.Crawler.max_depth">
+<span class="sig-name descname"><span class="pre">max_depth</span></span><a class="headerlink" href="#crawlit.crawler.engine.Crawler.max_depth" title="Link to this definition"></a></dt>
+<dd><p>Maximum depth of crawling from the start URL.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="crawlit.crawler.engine.Crawler.internal_only">
+<span class="sig-name descname"><span class="pre">internal_only</span></span><a class="headerlink" href="#crawlit.crawler.engine.Crawler.internal_only" title="Link to this definition"></a></dt>
+<dd><p>Whether to restrict crawling to the same domain.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)">bool</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="crawlit.crawler.engine.Crawler.respect_robots">
+<span class="sig-name descname"><span class="pre">respect_robots</span></span><a class="headerlink" href="#crawlit.crawler.engine.Crawler.respect_robots" title="Link to this definition"></a></dt>
+<dd><p>Whether to respect robots.txt rules.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)">bool</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="crawlit.crawler.engine.Crawler.visited_urls">
+<span class="sig-name descname"><span class="pre">visited_urls</span></span><a class="headerlink" href="#crawlit.crawler.engine.Crawler.visited_urls" title="Link to this definition"></a></dt>
+<dd><p>Set of URLs already visited.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#set" title="(in Python v3.13)">set</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="crawlit.crawler.engine.Crawler.results">
+<span class="sig-name descname"><span class="pre">results</span></span><a class="headerlink" href="#crawlit.crawler.engine.Crawler.results" title="Link to this definition"></a></dt>
+<dd><p>Dictionary containing crawl results and metadata.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)">dict</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="crawlit.crawler.engine.Crawler.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">start_url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_depth</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">3</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">internal_only</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">user_agent</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'crawlit/1.0'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_retries</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">3</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">timeout</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">delay</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">respect_robots</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/crawlit/crawler/engine.html#Crawler.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#crawlit.crawler.engine.Crawler.__init__" title="Link to this definition"></a></dt>
+<dd><p>Initialize the crawler with given parameters.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>start_url</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a>) – The URL where crawling will begin.</p></li>
+<li><p><strong>max_depth</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>, </em><em>optional</em>) – Maximum crawling depth. Defaults to 3.</p></li>
+<li><p><strong>internal_only</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><em>bool</em></a><em>, </em><em>optional</em>) – Whether to stay within the same domain. Defaults to True.</p></li>
+<li><p><strong>user_agent</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><em>optional</em>) – User agent string to use in HTTP requests. Defaults to “crawlit/1.0”.</p></li>
+<li><p><strong>max_retries</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>, </em><em>optional</em>) – Maximum number of retry attempts for failed requests. Defaults to 3.</p></li>
+<li><p><strong>timeout</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>, </em><em>optional</em>) – Request timeout in seconds. Defaults to 10.</p></li>
+<li><p><strong>delay</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><em>float</em></a><em>, </em><em>optional</em>) – Delay between requests in seconds. Defaults to 0.1.</p></li>
+<li><p><strong>respect_robots</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><em>bool</em></a><em>, </em><em>optional</em>) – Whether to respect robots.txt rules. Defaults to True.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="crawlit.crawler.engine.Crawler.crawl">
+<span class="sig-name descname"><span class="pre">crawl</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/crawlit/crawler/engine.html#Crawler.crawl"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#crawlit.crawler.engine.Crawler.crawl" title="Link to this definition"></a></dt>
+<dd><p>Start the crawling process</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="crawlit.crawler.engine.Crawler.get_results">
+<span class="sig-name descname"><span class="pre">get_results</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/crawlit/crawler/engine.html#Crawler.get_results"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#crawlit.crawler.engine.Crawler.get_results" title="Link to this definition"></a></dt>
+<dd><p>Return the detailed crawl results</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="crawlit.crawler.engine.Crawler.get_skipped_external_urls">
+<span class="sig-name descname"><span class="pre">get_skipped_external_urls</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/crawlit/crawler/engine.html#Crawler.get_skipped_external_urls"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#crawlit.crawler.engine.Crawler.get_skipped_external_urls" title="Link to this definition"></a></dt>
+<dd><p>Return the list of skipped external URLs</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="crawlit.crawler.engine.Crawler.get_skipped_robots_paths">
+<span class="sig-name descname"><span class="pre">get_skipped_robots_paths</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/crawlit/crawler/engine.html#Crawler.get_skipped_robots_paths"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#crawlit.crawler.engine.Crawler.get_skipped_robots_paths" title="Link to this definition"></a></dt>
+<dd><p>Return the list of URLs skipped due to robots.txt rules</p>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="page-fetcher">
+<h2>Page Fetcher<a class="headerlink" href="#page-fetcher" title="Link to this heading"></a></h2>
+<p id="module-crawlit.crawler.fetcher">fetcher.py - HTTP request handling</p>
+<dl class="py function">
+<dt class="sig sig-object py" id="crawlit.crawler.fetcher.fetch_page">
+<span class="sig-prename descclassname"><span class="pre">crawlit.crawler.fetcher.</span></span><span class="sig-name descname"><span class="pre">fetch_page</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">user_agent</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'crawlit/1.0'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_retries</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">3</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">timeout</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/crawlit/crawler/fetcher.html#fetch_page"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#crawlit.crawler.fetcher.fetch_page" title="Link to this definition"></a></dt>
+<dd><p>Fetch a web page with retries and proper error handling</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>url</strong> – The URL to fetch</p></li>
+<li><p><strong>user_agent</strong> – User agent string to use in the request</p></li>
+<li><p><strong>max_retries</strong> – Maximum number of retries on failure</p></li>
+<li><p><strong>timeout</strong> – Request timeout in seconds</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>(success, response_or_error, status_code)</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)">tuple</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="crawlit.crawler.fetcher.fetch_url">
+<span class="sig-prename descclassname"><span class="pre">crawlit.crawler.fetcher.</span></span><span class="sig-name descname"><span class="pre">fetch_url</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">user_agent</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'crawlit/1.0'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_retries</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">3</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">timeout</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/crawlit/crawler/fetcher.html#fetch_url"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#crawlit.crawler.fetcher.fetch_url" title="Link to this definition"></a></dt>
+<dd><p>Alias for fetch_page - maintained for backward compatibility with tests</p>
+<p>Note: Tests expect this function to return just the response object,
+unlike fetch_page which returns (success, response, status_code)</p>
+</dd></dl>
+
+</section>
+<section id="html-parser">
+<h2>HTML Parser<a class="headerlink" href="#html-parser" title="Link to this heading"></a></h2>
+<p id="module-crawlit.crawler.parser">parser.py - HTML parsing and link extraction</p>
+<dl class="py function">
+<dt class="sig sig-object py" id="crawlit.crawler.parser.extract_links">
+<span class="sig-prename descclassname"><span class="pre">crawlit.crawler.parser.</span></span><span class="sig-name descname"><span class="pre">extract_links</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">html_content</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">base_url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">delay</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.1</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/crawlit/crawler/parser.html#extract_links"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#crawlit.crawler.parser.extract_links" title="Link to this definition"></a></dt>
+<dd><p>Extract links from HTML content from various elements</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>html_content</strong> – The HTML content to parse</p></li>
+<li><p><strong>base_url</strong> – The base URL for resolving relative links</p></li>
+<li><p><strong>delay</strong> – Delay in seconds to be polite to the server</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>List of absolute URLs found in the HTML</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)">list</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="robots-txt-handler">
+<h2>Robots.txt Handler<a class="headerlink" href="#robots-txt-handler" title="Link to this heading"></a></h2>
+<p id="module-crawlit.crawler.robots">robots.py - Robots.txt parser and rule checker</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="crawlit.crawler.robots.RobotsHandler">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">crawlit.crawler.robots.</span></span><span class="sig-name descname"><span class="pre">RobotsHandler</span></span><a class="reference internal" href="../_modules/crawlit/crawler/robots.html#RobotsHandler"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#crawlit.crawler.robots.RobotsHandler" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Handler for robots.txt parsing and rule checking</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="crawlit.crawler.robots.RobotsHandler.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/crawlit/crawler/robots.html#RobotsHandler.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#crawlit.crawler.robots.RobotsHandler.__init__" title="Link to this definition"></a></dt>
+<dd><p>Initialize robots parser cache</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="crawlit.crawler.robots.RobotsHandler.can_fetch">
+<span class="sig-name descname"><span class="pre">can_fetch</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">user_agent</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/crawlit/crawler/robots.html#RobotsHandler.can_fetch"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#crawlit.crawler.robots.RobotsHandler.can_fetch" title="Link to this definition"></a></dt>
+<dd><p>Check if a URL can be fetched according to robots.txt rules</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>url</strong> – The URL to check</p></li>
+<li><p><strong>user_agent</strong> – The user agent to check rules for</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>True if URL can be fetched, False otherwise</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)">bool</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="crawlit.crawler.robots.RobotsHandler.get_robots_parser">
+<span class="sig-name descname"><span class="pre">get_robots_parser</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">base_url</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/crawlit/crawler/robots.html#RobotsHandler.get_robots_parser"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#crawlit.crawler.robots.RobotsHandler.get_robots_parser" title="Link to this definition"></a></dt>
+<dd><p>Get or create a parser for the domain’s robots.txt</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>base_url</strong> – The base URL of the site</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A parser for the domain’s robots.txt</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>RobotFileParser</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="crawlit.crawler.robots.RobotsHandler.get_skipped_paths">
+<span class="sig-name descname"><span class="pre">get_skipped_paths</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/crawlit/crawler/robots.html#RobotsHandler.get_skipped_paths"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#crawlit.crawler.robots.RobotsHandler.get_skipped_paths" title="Link to this definition"></a></dt>
+<dd><p>Get list of URLs skipped due to robots.txt rules</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="crawlit.crawler.robots.RobotsTxt">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">crawlit.crawler.robots.</span></span><span class="sig-name descname"><span class="pre">RobotsTxt</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">user_agent</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'crawlit/1.0'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/crawlit/crawler/robots.html#RobotsTxt"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#crawlit.crawler.robots.RobotsTxt" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Compatibility class for tests that expect a RobotsTxt class
+This wraps the RobotsHandler class functionality</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="crawlit.crawler.robots.RobotsTxt.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">user_agent</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'crawlit/1.0'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/crawlit/crawler/robots.html#RobotsTxt.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#crawlit.crawler.robots.RobotsTxt.__init__" title="Link to this definition"></a></dt>
+<dd><p>Initialize RobotsTxt with a URL and user agent</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>url</strong> – Base URL for robots.txt</p></li>
+<li><p><strong>user_agent</strong> – User agent to check rules against</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="crawlit.crawler.robots.RobotsTxt.can_fetch">
+<span class="sig-name descname"><span class="pre">can_fetch</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/crawlit/crawler/robots.html#RobotsTxt.can_fetch"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#crawlit.crawler.robots.RobotsTxt.can_fetch" title="Link to this definition"></a></dt>
+<dd><p>Check if a path can be fetched</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="crawlit.crawler.robots.RobotsTxt.get_sitemaps">
+<span class="sig-name descname"><span class="pre">get_sitemaps</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/crawlit/crawler/robots.html#RobotsTxt.get_sitemaps"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#crawlit.crawler.robots.RobotsTxt.get_sitemaps" title="Link to this definition"></a></dt>
+<dd><p>Get sitemaps from robots.txt</p>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="index.html" class="btn btn-neutral float-left" title="API Reference" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="output.html" class="btn btn-neutral float-right" title="Output Module" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Crawlit Developers.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

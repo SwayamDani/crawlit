@@ -54,6 +54,22 @@ pip install -e .
 
 ## 📘 Usage
 
+### API Documentation
+
+Full API documentation is available in the `docs` directory. To build and view the documentation:
+
+```bash
+# Install Sphinx and required packages
+pip install sphinx sphinx_rtd_theme sphinxcontrib-napoleon
+
+# Build the documentation
+cd docs
+make html  # On Windows: make.bat html
+
+# View the documentation
+# Open docs/_build/html/index.html in your browser
+```
+
 ### As a Library in Your Python Code
 
 ```python

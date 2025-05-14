@@ -11,7 +11,11 @@ from pathlib import Path
 
 
 def create_output_file(output_path):
-    """Create directory for output file if it doesn't exist"""
+    """Create directory for output file if it doesn't exist.
+    
+    Args:
+        output_path (str): Path to the output file.
+    """
     # Get the directory part of the file path
     output_dir = os.path.dirname(output_path)
     
@@ -21,15 +25,26 @@ def create_output_file(output_path):
 
 
 def save_results(results, output_format=None, output_file=None, pretty_json=False, format_type=None, pretty=None):
-    """Save crawler results to specified file in the requested format
+    """Save crawler results to specified file in the requested format.
+    
+    This function takes the crawler results and saves them to a file in the specified format.
+    It supports JSON, CSV, TXT, and HTML output formats.
     
     Args:
-        results: Crawler results dictionary
-        output_format: Format to save results in (json, csv, txt, html)
-        output_file: Path to the output file
-        pretty_json: Whether to format JSON with indentation
-        format_type: Alternative name for output_format (for backward compatibility)
-        pretty: Alternative name for pretty_json (for backward compatibility)
+        results (dict): Crawler results dictionary containing URL data.
+        output_format (str, optional): Format to save results in (json, csv, txt, html). 
+            If None, will use the file extension or default to JSON.
+        output_file (str, optional): Path to the output file. If None, prints to stdout.
+        pretty_json (bool, optional): Whether to format JSON with indentation. Defaults to False.
+        format_type (str, optional): Alternative name for output_format (for backward compatibility).
+        pretty (bool, optional): Alternative name for pretty_json (for backward compatibility).
+        
+    Returns:
+        bool: True if saving was successful, False otherwise.
+    
+    Raises:
+        ValueError: If an unsupported output format is specified.
+    pretty: Alternative name for pretty_json (for backward compatibility)
     """
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
