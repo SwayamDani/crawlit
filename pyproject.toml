@@ -32,7 +32,7 @@ dependencies = [
 [project.urls]
 "Homepage" = "https://github.com/SwayamDani/crawlit"
 "Bug Tracker" = "https://github.com/SwayamDani/crawlit/issues"
-"Documentation" = "https://github.com/SwayamDani/crawlit#readme"
+"Documentation" = "https://github.com/SwayamDani/crawlit/tree/main/docs"
 
 [project.optional-dependencies]
 cli = []  # No extra dependencies needed for CLI, but keeps it optional
