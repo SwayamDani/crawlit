@@ -38,7 +38,7 @@ pip install -r requirements.txt
 
 ## 📘 Usage
 
-### Basic Usage
+### Basic Usage`
 
 ```bash
 python crawlit.py --url https://example.com
