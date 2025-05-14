@@ -14,8 +14,8 @@ from output.formatters import save_results, generate_summary_report
 # CLI functionality (but not executed on import)
 def cli_main():
     """Entry point for the CLI interface when installed with [cli] option"""
-    from crawlit import main
-    return main()
+    from crawlit import main as crawlit_main
+    return crawlit_main()
 
 __all__ = [
     'Crawler',           # Main crawler engine
