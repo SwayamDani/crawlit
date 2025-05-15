@@ -33,7 +33,7 @@ def main():
         start_url=url,
         max_depth=1,  # Only crawl 2 levels deep
         internal_only=False,  # Only stay within the same domain
-        respect_robots=True  # Respect robots.txt directives
+        respect_robots=True,  # Respect robots.txt directives
     )
     
     # Start the crawling process

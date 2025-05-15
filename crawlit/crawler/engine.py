@@ -70,9 +70,14 @@ class Crawler:
         else:
             logger.info("Robots.txt handling disabled")
             
-        # Initialize extractors
-        self.image_extractor = ImageExtractor()
-        logger.info("Image extraction enabled")
+        # Initialize extractors - image extraction is only available with crawlit/2.0 user agent
+        self.image_extraction_enabled = self.user_agent == "crawlit/2.0"
+        if self.image_extraction_enabled:
+            self.image_extractor = ImageExtractor()
+            logger.info("Image extraction enabled (crawlit/2.0)")
+        else:
+            self.image_extractor = None
+            logger.info("Image extraction disabled (requires crawlit/2.0 user agent)")
 
     def _extract_base_domain(self, url):
         """Extract the base domain from a URL"""
@@ -140,10 +145,11 @@ class Crawler:
                         links = extract_links(response.text, current_url, self.delay)
                         self.results[current_url]['links'] = links
                         
-                        # Extract images from the page
-                        images = self.image_extractor.extract_images(response.text)
-                        self.results[current_url]['images'] = images
-                        logger.debug(f"Extracted {len(images)} images from {current_url}")
+                        # Extract images from the page if extraction is enabled
+                        if self.image_extraction_enabled:
+                            images = self.image_extractor.extract_images(response.text)
+                            self.results[current_url]['images'] = images
+                            logger.debug(f"Extracted {len(images)} images from {current_url}")
                         
                         # Add new links to the queue
                         for link in links:
