@@ -5,11 +5,44 @@ Extracts HTML tables without external dependencies.
 
 import re
 import html
-from typing import List, Dict, Any, Union
+from typing import List, Dict, Any, Union, Optional, Tuple
+
+def clean_cell_content(content: str) -> str:
+    """
+    Enhanced cleaning function for table cell content.
+    
+    Args:
+        content: Raw cell content with possible HTML tags
+        
+    Returns:
+        Cleaned text content
+    """
+    # Basic HTML tag removal 
+    clean_content = re.sub(r'<[^>]+>', '', content)
+    
+    # Handle HTML entities with the html module
+    clean_content = html.unescape(clean_content)
+    
+    # Additional cleanup for numeric brackets from Wikipedia references
+    clean_content = re.sub(r'\[\d+\]', '', clean_content)
+    
+    # Handle non-breaking spaces and other special whitespace
+    clean_content = clean_content.replace('\xa0', ' ')
+    
+    # Normalize whitespace (convert multiple spaces/tabs/newlines to a single space)
+    clean_content = re.sub(r'\s+', ' ', clean_content).strip()
+    
+    return clean_content
 
 def extract_tables(html_content: str, min_rows: int = 1, min_columns: int = 2) -> List[List[List[str]]]:
     """
-    Extract all tables from HTML content.
+    Extract all tables from HTML content with advanced features.
+    
+    Features include:
+    - Proper handling of thead and tbody sections
+    - Support for rowspan and colspan attributes
+    - Consistent column count across all rows
+    - Clean cell content extraction
     
     Args:
         html_content: The HTML content to parse
@@ -18,7 +51,7 @@ def extract_tables(html_content: str, min_rows: int = 1, min_columns: int = 2) -
         
     Returns:
         List of tables, where each table is represented as a list of rows,
-        and each row is a list of cell values
+        and each row is a list of cell values with proper handling of merged cells
     """
     tables = []
     
@@ -29,43 +62,14 @@ def extract_tables(html_content: str, min_rows: int = 1, min_columns: int = 2) -
     for table_match in table_tags:
         table_content = table_match.group(1)
         
-        # Extract rows
-        rows = []
-        row_pattern = r'<tr[^>]*>(.*?)</tr>'
-        row_matches = re.finditer(row_pattern, table_content, re.DOTALL)
+        # Step 1: Extract table structure with cell spans
+        raw_table_data = _extract_raw_table_structure(table_content)
         
-        for row_match in row_matches:
-            row_content = row_match.group(1)
-            
-            # Extract header cells and data cells
-            cell_pattern = r'<t[dh][^>]*>(.*?)</t[dh]>'
-            cells = re.finditer(cell_pattern, row_content, re.DOTALL)
-            
-            row_data = []
-            for cell in cells:
-                # Clean up cell content (remove nested tags, handle entities, etc.)
-                cell_content = cell.group(1)
-                
-                # Basic HTML tag removal (can be enhanced)
-                clean_content = re.sub(r'<[^>]+>', '', cell_content)
-                
-                # Handle HTML entities with the html module
-                clean_content = html.unescape(clean_content)
-                
-                # Additional cleanup for numeric brackets from Wikipedia references
-                clean_content = re.sub(r'\[\d+\]', '', clean_content)
-                
-                # Remove extra whitespace
-                clean_content = re.sub(r'\s+', ' ', clean_content).strip()
-                
-                # Add the cleaned cell content to the row
-                row_data.append(clean_content)
-            
-            if row_data and len(row_data) >= min_columns:  # Only add rows with enough cells
-                rows.append(row_data)
+        # Step 2: Process table to handle rowspan and colspan
+        processed_table = _process_table_spans(raw_table_data)
         
-        if rows and len(rows) >= min_rows:  # Only add tables with enough rows
-            tables.append(rows)
+        if processed_table and len(processed_table) >= min_rows and any(len(row) >= min_columns for row in processed_table):
+            tables.append(processed_table)
     
     return tables
 
@@ -90,6 +94,147 @@ def filter_tables(tables: List[List[List[str]]], min_rows: int = 2, min_cols: in
                 result.append(table)
     
     return result
+
+def _extract_raw_table_structure(table_content: str) -> List[List[Dict[str, Any]]]:
+    """
+    Extract raw table structure including rowspan and colspan attributes.
+    
+    Args:
+        table_content: HTML content inside <table> tags
+        
+    Returns:
+        List of rows, where each row contains a list of cell dictionaries with
+        content, rowspan, and colspan information
+    """
+    raw_rows = []
+    
+    # Handle both thead and tbody sections
+    sections = []
+    
+    # Try to find thead section
+    thead_pattern = r'<thead[^>]*>(.*?)</thead>'
+    thead_match = re.search(thead_pattern, table_content, re.DOTALL)
+    if thead_match:
+        sections.append(thead_match.group(1))
+    
+    # Try to find tbody section(s)
+    tbody_pattern = r'<tbody[^>]*>(.*?)</tbody>'
+    tbody_matches = re.finditer(tbody_pattern, table_content, re.DOTALL)
+    for tbody_match in tbody_matches:
+        sections.append(tbody_match.group(1))
+    
+    # If no sections found, use the whole table content
+    if not sections:
+        sections.append(table_content)
+    
+    # Process all sections
+    for section_content in sections:
+        # Extract rows
+        row_pattern = r'<tr[^>]*>(.*?)</tr>'
+        row_matches = re.finditer(row_pattern, section_content, re.DOTALL)
+        
+        for row_match in row_matches:
+            row_content = row_match.group(1)
+            cells = []
+            
+            # Extract cells with their attributes
+            cell_pattern = r'<t([dh])([^>]*)>(.*?)</t[dh]>'
+            cell_matches = re.finditer(cell_pattern, row_content, re.DOTALL)
+            
+            for cell_match in cell_matches:
+                cell_type = cell_match.group(1)  # 'd' or 'h'
+                attrs = cell_match.group(2)
+                content = cell_match.group(3)
+                
+                # Extract rowspan and colspan
+                rowspan = 1
+                colspan = 1
+                
+                rowspan_match = re.search(r'rowspan\s*=\s*["\']?(\d+)["\']?', attrs)
+                if rowspan_match:
+                    rowspan = int(rowspan_match.group(1))
+                    
+                colspan_match = re.search(r'colspan\s*=\s*["\']?(\d+)["\']?', attrs)
+                if colspan_match:
+                    colspan = int(colspan_match.group(1))
+                
+                # Clean the content
+                clean_content = clean_cell_content(content)
+                
+                # Store cell with its span information
+                cells.append({
+                    'content': clean_content,
+                    'rowspan': rowspan,
+                    'colspan': colspan,
+                    'is_header': cell_type == 'h'
+                })
+            
+            raw_rows.append(cells)
+    
+    return raw_rows
+
+def _process_table_spans(raw_table_data: List[List[Dict[str, Any]]]) -> List[List[str]]:
+    """
+    Process table data to handle rowspan and colspan attributes.
+    
+    Args:
+        raw_table_data: Raw table structure with cell span information
+        
+    Returns:
+        Processed table as a list of rows with cells expanded according to spans
+    """
+    if not raw_table_data:
+        return []
+    
+    # Find the maximum number of columns
+    max_cols = 0
+    for row in raw_table_data:
+        col_count = sum(cell['colspan'] for cell in row)
+        max_cols = max(max_cols, col_count)
+    
+    if max_cols == 0:
+        return []
+    
+    # Create a grid to track occupied cells
+    num_rows = len(raw_table_data)
+    grid = [[None for _ in range(max_cols)] for _ in range(num_rows)]
+    
+    # Fill the grid with cell contents, taking spans into account
+    for row_idx, row in enumerate(raw_table_data):
+        col_idx = 0
+        for cell in row:
+            # Find the next available column in this row
+            while col_idx < max_cols and grid[row_idx][col_idx] is not None:
+                col_idx += 1
+            
+            if col_idx >= max_cols:
+                break
+            
+            # Place the cell content in the grid
+            content = cell['content']
+            rowspan = cell['rowspan']
+            colspan = cell['colspan']
+            
+            # Fill the grid cells covered by this cell's spans
+            for r in range(row_idx, min(row_idx + rowspan, num_rows)):
+                for c in range(col_idx, min(col_idx + colspan, max_cols)):
+                    if r == row_idx and c == col_idx:
+                        grid[r][c] = content  # Main cell gets the content
+                    else:
+                        grid[r][c] = ""  # Spanned cells get empty string
+            
+            # Move to the next position
+            col_idx += colspan
+    
+    # Convert grid to table rows, filtering out None values
+    result_table = []
+    for grid_row in grid:
+        # Replace any None values (unfilled cells) with empty strings
+        processed_row = [cell if cell is not None else "" for cell in grid_row]
+        if any(processed_row):  # Skip rows that are all empty
+            result_table.append(processed_row)
+    
+    return result_table
 
 def tables_to_csv(tables: List[List[List[str]]], base_filename: str = "table", 
                  output_dir: str = None) -> List[str]:

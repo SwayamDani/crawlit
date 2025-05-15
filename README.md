@@ -13,6 +13,7 @@ A powerful, modular, and ethical web crawler built in Python. Designed for secur
 - **Domain Filtering**: Restrict crawling to specific domains or subdomains
 - **Robust Error Handling**: Gracefully manage connection issues and malformed pages
 - **Multiple Output Formats**: Export results as JSON, CSV, or plain text
+- **Advanced Table Extraction**: Extract tables with support for complex structures and cell spanning
 - **Detailed Logging**: Comprehensive logging of all crawler activities
 - **Command Line Interface**: Simple, powerful CLI for easy usage
 - **Programmatic API**: Use as a library in your own Python code
@@ -135,6 +136,37 @@ crawlit --url https://example.com \
 | `--summary`, `-s` | Show a summary of crawl results | False |
 | `--verbose`, `-v` | Verbose output | False |
 | `--help`, `-h` | Show help message | - |
+
+## 📊 Advanced Table Extraction
+
+Crawlit includes powerful HTML table extraction capabilities:
+
+```python
+from crawlit.extractors.tables import extract_tables
+
+# Extract tables with minimum rows and columns filters
+tables = extract_tables(html_content, min_rows=2, min_columns=3)
+
+# Convert tables to CSV
+from crawlit.extractors.tables import tables_to_csv
+tables_to_csv(tables, base_filename="extracted_tables", output_dir="output")
+
+# Convert to dictionaries using first row as headers
+from crawlit.extractors.tables import tables_to_dict
+table_dicts = tables_to_dict(tables)
+
+# Convert to JSON
+from crawlit.extractors.tables import tables_to_json
+tables_to_json(tables, base_filename="extracted_tables")
+```
+
+The advanced table extraction provides:
+- Smart handling of `<thead>` and `<tbody>` sections
+- Full support for `rowspan` and `colspan` attributes
+- Consistent column count across all rows
+- Thorough cell content cleaning (HTML entities, whitespace, etc.)
+
+For examples, see `examples/enhanced_table_extraction.py` and `examples/rowspan_colspan_example.py`.
 
 ## 🏗️ Project Structure
 
