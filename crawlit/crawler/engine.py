@@ -10,6 +10,7 @@ from urllib.parse import urlparse, urljoin
 from .fetcher import fetch_page
 from .parser import extract_links
 from .robots import RobotsHandler
+from ..extractors.image_extractor import ImageExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,10 @@ class Crawler:
             logger.info("Robots.txt handling enabled")
         else:
             logger.info("Robots.txt handling disabled")
+            
+        # Initialize extractors
+        self.image_extractor = ImageExtractor()
+        logger.info("Image extraction enabled")
 
     def _extract_base_domain(self, url):
         """Extract the base domain from a URL"""
@@ -134,6 +139,11 @@ class Crawler:
                         
                         links = extract_links(response.text, current_url, self.delay)
                         self.results[current_url]['links'] = links
+                        
+                        # Extract images from the page
+                        images = self.image_extractor.extract_images(response.text)
+                        self.results[current_url]['images'] = images
+                        logger.debug(f"Extracted {len(images)} images from {current_url}")
                         
                         # Add new links to the queue
                         for link in links:

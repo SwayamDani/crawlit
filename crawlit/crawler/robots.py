@@ -5,6 +5,8 @@ robots.py - Robots.txt parser and rule checker
 
 import logging
 import urllib.parse
+import urllib.request
+import urllib.error
 from urllib.robotparser import RobotFileParser
 
 logger = logging.getLogger(__name__)
@@ -39,9 +41,6 @@ class RobotsHandler:
         robots_url = f"{parsed_url.scheme}://{domain}/robots.txt"
         
         try:
-            import urllib.request
-            import urllib.error
-            
             logger.info(f"Fetching robots.txt from {robots_url}")
             
             # First manually check if robots.txt exists and is valid

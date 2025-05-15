@@ -4,9 +4,11 @@ This package contains various data extraction modules for the Crawlit web crawle
 """
 
 from .tables import extract_tables, tables_to_csv, tables_to_dict
+from .image_extractor import ImageExtractor
 
 __all__ = [
     'extract_tables',
     'tables_to_csv',
     'tables_to_dict',
+    'ImageExtractor',
 ]

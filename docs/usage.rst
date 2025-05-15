@@ -63,6 +63,54 @@ The ``save_results`` function helps you save the crawler results:
     summary = generate_summary_report(results)
     print(summary)
 
+Extracting Data from Pages
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Crawlit provides built-in extractors for common data types:
+
+Image Extraction
+"""""""""""""""
+
+Extract images and their attributes from web pages:
+
+.. code-block:: python
+
+    from crawlit import Crawler
+    
+    crawler = Crawler("https://example.com")
+    crawler.crawl()
+    results = crawler.get_results()
+    
+    # Process extracted images
+    for url, page_data in results.items():
+        if 'images' in page_data and page_data['images']:
+            print(f"\nImages on {url}: {len(page_data['images'])}")
+            
+            for img in page_data['images']:
+                print(f"- Source: {img['src']}")
+                print(f"  Alt text: {img.get('alt', 'None')}")
+                
+                # Check if image has dimensions
+                if 'width' in img and 'height' in img:
+                    print(f"  Dimensions: {img['width']}x{img['height']}")
+                
+                # Check if image is likely decorative (missing alt text)
+                if img.get('decorative', False):
+                    print("  Warning: Missing alt text (accessibility issue)")
+
+Each image is returned as a dictionary containing:
+
+- ``src``: The image source URL
+- ``alt``: Alternative text for the image (if any)
+- ``title``: Title attribute (if any) 
+- ``width`` and ``height``: Dimensions (if specified)
+- ``class``: CSS class attributes
+- ``decorative``: Boolean flag indicating if the image lacks alt text
+- ``parent_tag``: The HTML tag containing the image
+
+Table Extraction
+"""""""""""""""
+
 Command Line Interface
 --------------------
 
