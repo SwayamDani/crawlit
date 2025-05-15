@@ -43,6 +43,20 @@ def parse_args():
                         help="Show a summary of crawl results at the end")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     
+    # Table extraction options
+    parser.add_argument("--extract-tables", "-t", action="store_true", default=False,
+                        help="Extract HTML tables from crawled pages")
+    parser.add_argument("--tables-output", default="table_output", 
+                        help="Directory to save extracted tables")
+    parser.add_argument("--tables-format", default="csv", choices=["csv", "json"],
+                        help="Format to save extracted tables (csv or json)")
+    parser.add_argument("--min-rows", type=int, default=1,
+                        help="Minimum number of rows for a table to be extracted")
+    parser.add_argument("--min-columns", type=int, default=2,
+                        help="Minimum number of columns for a table to be extracted")
+    parser.add_argument("--max-table-depth", type=int, default=None,
+                        help="Maximum depth to extract tables from (default: same as max crawl depth)")
+    
     return parser.parse_args()
 
 def main():
@@ -52,6 +66,22 @@ def main():
     # Set logging level based on verbosity
     if args.verbose:
         logger.setLevel(logging.DEBUG)
+        
+    # Check if trying to use table extraction with crawlit/1.0
+    if args.extract_tables and args.user_agent != "crawlit/2.0":
+        logger.warning("Table extraction (--extract-tables) requires --user-agent crawlit/2.0")
+        logger.warning("To extract tables, please use: --user-agent crawlit/2.0")
+        logger.warning("Continuing with standard crawl (no table extraction)")
+    
+    # Check if using other v2.0 features with old user agent
+    if args.user_agent != "crawlit/2.0" and (
+        args.min_rows != 1 or 
+        args.min_columns != 2 or 
+        args.max_table_depth is not None or
+        args.tables_format != "csv"
+    ):
+        logger.warning("Table extraction parameters (--min-rows, --min-columns, --max-table-depth, --tables-format) require --user-agent crawlit/2.0")
+        logger.warning("These parameters will be ignored with the current user agent.")
     
     try:
         # Record start time for duration calculation
@@ -75,6 +105,43 @@ def main():
         # Get results
         results = crawler.get_results()
         logger.info(f"Crawl complete. Visited {len(results)} URLs.")
+        
+        # Handle table extraction if enabled
+        if args.extract_tables:
+            import os
+            
+            # Check if user is using crawlit/2.0 user agent for table extraction
+            is_v2_user_agent = args.user_agent == "crawlit/2.0"
+            
+            if not is_v2_user_agent:
+                # Table extraction is only available with crawlit/2.0
+                logger.warning("Table extraction is only available with --user-agent crawlit/2.0")
+                logger.warning("To extract tables, please use: --user-agent crawlit/2.0")
+                logger.warning("Continuing with standard crawl (no table extraction)")
+            else:
+                # Table extraction feature - only available in crawlit/2.0
+                logger.info(f"Using table extraction feature (crawlit/2.0)...")
+                from crawlit.extractors.tables import extract_and_save_tables_from_crawl
+                
+                # Process all results and extract tables
+                stats = extract_and_save_tables_from_crawl(
+                    results=results,
+                    output_dir=args.tables_output,
+                    output_format=args.tables_format,
+                    min_rows=args.min_rows,
+                    min_columns=args.min_columns,
+                    max_depth=args.max_table_depth if args.max_table_depth is not None else args.depth
+                )
+                
+                # Log the results
+                if stats["total_tables_found"] > 0:
+                    logger.info(f"[crawlit/2.0] Extracted {stats['total_tables_found']} tables from {stats['total_pages_with_tables']} pages, saved to {stats['total_files_saved']} files in {args.tables_output}/")
+                    
+                    # Log tables by depth
+                    for depth, count in sorted(stats["tables_by_depth"].items()):
+                        logger.debug(f"[crawlit/2.0] Depth {depth}: {count} tables found")
+                else:
+                    logger.info("[crawlit/2.0] No tables found on any crawled pages.")
         
         # Report skipped external URLs if domain restriction is enabled
         if not args.allow_external and hasattr(crawler, 'get_skipped_external_urls'):

@@ -39,11 +39,40 @@ class RobotsHandler:
         robots_url = f"{parsed_url.scheme}://{domain}/robots.txt"
         
         try:
+            import urllib.request
+            import urllib.error
+            
             logger.info(f"Fetching robots.txt from {robots_url}")
-            parser.set_url(robots_url)
-            parser.read()
-            self.parsers[domain] = parser
-            return parser
+            
+            # First manually check if robots.txt exists and is valid
+            req = urllib.request.Request(
+                robots_url,
+                headers={'User-Agent': 'crawlit/2.0'}
+            )
+            
+            try:
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    # Check if it's a text response and not HTML
+                    content_type = response.headers.get('Content-Type', '').lower()
+                    if response.status == 200 and ('text/plain' in content_type or not 'html' in content_type):
+                        # Valid robots.txt file found, use the standard parser
+                        parser.set_url(robots_url)
+                        parser.read()
+                        self.parsers[domain] = parser
+                        return parser
+                    else:
+                        # If it returns HTML or other non-text content, it's not a valid robots.txt
+                        logger.warning(f"Invalid robots.txt at {robots_url} (content-type: {content_type})")
+                        empty_parser = RobotFileParser()
+                        self.parsers[domain] = empty_parser
+                        return empty_parser
+            except urllib.error.HTTPError as http_err:
+                # 404 or other HTTP errors mean no robots.txt file exists
+                logger.warning(f"No robots.txt found at {robots_url} (HTTP error: {http_err.code})")
+                empty_parser = RobotFileParser()
+                self.parsers[domain] = empty_parser
+                return empty_parser
+                
         except Exception as e:
             logger.warning(f"Error fetching robots.txt from {robots_url}: {e}")
             # Return a permissive parser if robots.txt couldn't be fetched

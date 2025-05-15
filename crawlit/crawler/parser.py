@@ -4,8 +4,8 @@ parser.py - HTML parsing and link extraction
 """
 
 import time
+import re
 from urllib.parse import urlparse, urljoin
-from bs4 import BeautifulSoup
 import logging
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,13 @@ def extract_links(html_content, base_url, delay=0.1):
     # Introduce a small delay to be polite to the server
     time.sleep(delay)
     
-    soup = BeautifulSoup(html_content, 'lxml')
+    # Convert to string if bytes
+    if isinstance(html_content, bytes):
+        try:
+            html_content = html_content.decode('utf-8')
+        except UnicodeDecodeError:
+            html_content = html_content.decode('latin-1')
+    
     links = set()  # Using a set to avoid duplicates
     
     # Dictionary of elements and their attributes that may contain URLs
@@ -41,10 +47,15 @@ def extract_links(html_content, base_url, delay=0.1):
         'form': 'action'
     }
     
-    # Extract links from each element type
+    # Extract links from each element type using regex patterns
     for tag_name, attr_name in elements_to_extract.items():
-        for tag in soup.find_all(tag_name, {attr_name: True}):
-            url = tag[attr_name].strip()
+        # Pattern to find tags with the desired attribute
+        # Example: <a href="http://example.com"> or <img src="/images/pic.jpg">
+        pattern = r'<{0}\s+[^>]*{1}=[\'"]([^\'"]+)[\'"][^>]*>'.format(tag_name, attr_name)
+        
+        # Find all matches
+        for match in re.finditer(pattern, html_content, re.IGNORECASE):
+            url = match.group(1).strip()
             
             # Process the URL
             processed_url = _process_url(url, base_url)

@@ -16,6 +16,9 @@ A powerful, modular, and ethical web crawler built in Python. Designed for secur
 - **Detailed Logging**: Comprehensive logging of all crawler activities
 - **Command Line Interface**: Simple, powerful CLI for easy usage
 - **Programmatic API**: Use as a library in your own Python code
+- **Version-dependent Features**: 
+  - `crawlit/1.0`: Standard web crawling capabilities
+  - `crawlit/2.0`: Enhanced features including multi-depth table extraction
 
 ## 📋 Requirements
 

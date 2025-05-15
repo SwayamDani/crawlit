@@ -5,7 +5,6 @@ test_engine.py - Comprehensive tests for the main crawler engine functionality
 import pytest
 from unittest.mock import patch, MagicMock, call
 import requests
-from bs4 import BeautifulSoup
 import time
 
 from crawlit.crawler import engine

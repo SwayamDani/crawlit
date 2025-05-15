@@ -129,6 +129,9 @@ class Crawler:
                 try:
                     # Process the page to extract links if it's HTML
                     if 'text/html' in response.headers.get('Content-Type', ''):
+                        # Store HTML content for extraction features (like tables)
+                        self.results[current_url]['html_content'] = response.text
+                        
                         links = extract_links(response.text, current_url, self.delay)
                         self.results[current_url]['links'] = links
                         
