@@ -50,6 +50,25 @@ class ImageTagParser(HTMLParser):
         # Update parent tags stack
         if tag != 'img' and self.parent_tags and self.parent_tags[-1] == tag:
             self.parent_tags.pop()
+            
+    def extract_images(self, html_content: str) -> List[Dict[str, Any]]:
+        """
+        Extract images from HTML content.
+        
+        Args:
+            html_content: The HTML content to parse
+            
+        Returns:
+            List of dictionaries with image information
+        """
+        # Reset the parser state
+        self.images = []
+        self.parent_tags = []
+        
+        # Feed the HTML content to the parser
+        self.feed(html_content)
+        
+        return self.images
 
 
 class ImageExtractor:

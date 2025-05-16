@@ -82,13 +82,20 @@ def save_results(results, output_format=None, output_file=None, pretty_json=Fals
 
 def save_as_json(results, output_file, timestamp, pretty_json=False):
     """Save crawler results in JSON format"""
+    # Create a clean copy of results without HTML content
+    clean_results = {}
+    for url, data in results.items():
+        # Create a copy of the data without html_content
+        clean_data = {k: v for k, v in data.items() if k != 'html_content'}
+        clean_results[url] = clean_data
+    
     # Create output data structure with metadata and results
     output_data = {
         "metadata": {
             "timestamp": timestamp,
             "total_urls": len(results)
         },
-        "urls": results
+        "urls": clean_results
     }
     
     # Write to file with nice formatting
@@ -105,10 +112,15 @@ def save_as_csv(results, output_file, timestamp):
         writer = csv.writer(f)
         
         # Write header
-        writer.writerow(['URL', 'Status', 'Depth', 'Content Type', 'Links Found', 'Success', 'Error'])
+        writer.writerow(['URL', 'Status', 'Depth', 'Content Type', 'Links Found', 'Success', 'Error', 'Images Found', 'Keywords Found', 'Key Phrases Found', 'Tables Found'])
         
         # Write data rows
         for url, data in results.items():
+            images_count = len(data.get('images', []))
+            keywords_count = len(data.get('keywords', []))
+            keyphrases_count = len(data.get('keyphrases', []))
+            tables_count = len(data.get('tables', []))
+            
             writer.writerow([
                 url,
                 data.get('status', 'N/A'),
@@ -116,8 +128,61 @@ def save_as_csv(results, output_file, timestamp):
                 data.get('content_type', 'N/A'),
                 len(data.get('links', [])),
                 data.get('success', False),
-                data.get('error', '')
+                data.get('error', ''),
+                images_count,
+                keywords_count,
+                keyphrases_count,
+                tables_count
             ])
+        
+        # Write detailed data for images, keywords, etc. after basic info
+        writer.writerow([])
+        writer.writerow(['# DETAILED DATA'])
+        
+        for url, data in results.items():
+            # Images
+            if 'images' in data and data['images']:
+                writer.writerow([])
+                writer.writerow([f'# Images for {url}'])
+                writer.writerow(['Image Source', 'Alt Text', 'Width', 'Height', 'Class'])
+                for img in data['images']:
+                    writer.writerow([
+                        img.get('src', 'N/A'),
+                        img.get('alt', 'N/A'),
+                        img.get('width', 'N/A'),
+                        img.get('height', 'N/A'),
+                        img.get('class', 'N/A')
+                    ])
+            
+            # Keywords
+            if 'keywords' in data and data['keywords']:
+                writer.writerow([])
+                writer.writerow([f'# Keywords for {url}'])
+                writer.writerow(['Keyword', 'Score'])
+                
+                keywords = data['keywords']
+                keyword_scores = data.get('keyword_scores', {})
+                
+                for keyword in keywords:
+                    score = keyword_scores.get(keyword, 'N/A')
+                    writer.writerow([keyword, score])
+            
+            # Key Phrases
+            if 'keyphrases' in data and data['keyphrases']:
+                writer.writerow([])
+                writer.writerow([f'# Key Phrases for {url}'])
+                for phrase in data['keyphrases']:
+                    writer.writerow([phrase])
+            
+            # Tables (in a simplified format)
+            if 'tables' in data and data['tables']:
+                writer.writerow([])
+                writer.writerow([f'# Tables for {url}'])
+                for i, table in enumerate(data['tables']):
+                    writer.writerow([f'Table {i+1}'])
+                    for row in table:
+                        writer.writerow(row)
+                    writer.writerow([])
         
         # Write metadata at the end
         writer.writerow([])
@@ -156,6 +221,70 @@ def save_as_txt(results, output_file, timestamp):
                 
                 if len(links) > 5:
                     f.write(f"  - ... and {len(links) - 5} more\n")
+            
+            # Add images information
+            images = data.get('images', [])
+            f.write(f"Images Found: {len(images)}\n")
+            if images:
+                f.write("Sample Images:\n")
+                for img in images[:3]:  # Show at most 3 images
+                    src = img.get('src', 'No source')
+                    alt = img.get('alt', 'No alt text')
+                    f.write(f"  - {src} (Alt: {alt})\n")
+                
+                if len(images) > 3:
+                    f.write(f"  - ... and {len(images) - 3} more\n")
+            
+            # Add keywords information
+            keywords = data.get('keywords', [])
+            f.write(f"Keywords Found: {len(keywords)}\n")
+            if keywords:
+                f.write("Top Keywords:\n")
+                # Get top 5 keywords with scores if available
+                keyword_scores = data.get('keyword_scores', {})
+                if keyword_scores and len(keywords) > 0:
+                    sorted_keywords = sorted(keyword_scores.items(), key=lambda x: x[1], reverse=True)
+                    for keyword, score in sorted_keywords[:5]:
+                        f.write(f"  - {keyword} (Score: {score:.4f})\n")
+                else:
+                    for keyword in keywords[:5]:
+                        f.write(f"  - {keyword}\n")
+                
+                if len(keywords) > 5:
+                    f.write(f"  - ... and {len(keywords) - 5} more\n")
+            
+            # Add keyphrases
+            keyphrases = data.get('keyphrases', [])
+            f.write(f"Key Phrases Found: {len(keyphrases)}\n")
+            if keyphrases:
+                f.write("Sample Key Phrases:\n")
+                for phrase in keyphrases[:5]:  # Show at most 5 keyphrases
+                    f.write(f"  - {phrase}\n")
+                
+                if len(keyphrases) > 5:
+                    f.write(f"  - ... and {len(keyphrases) - 5} more\n")
+            
+            # Add tables information
+            tables = data.get('tables', [])
+            f.write(f"Tables Found: {len(tables)}\n")
+            if tables and len(tables) > 0:
+                f.write("Sample Table Structure:\n")
+                if len(tables) > 0 and len(tables[0]) > 0:
+                    sample_table = tables[0]
+                    max_rows = min(3, len(sample_table))
+                    for i in range(max_rows):
+                        row = sample_table[i]
+                        max_cols = min(3, len(row))
+                        f.write("  | " + " | ".join(str(cell) for cell in row[:max_cols]))
+                        if len(row) > 3:
+                            f.write(" | ... ")
+                        f.write(" |\n")
+                    
+                    if len(sample_table) > 3:
+                        f.write("  | ... |\n")
+                    
+                if len(tables) > 1:
+                    f.write(f"  ... and {len(tables) - 1} more tables\n")
             
             f.write("\n" + "-" * 40 + "\n\n")
 
@@ -311,6 +440,122 @@ def save_as_html(results, output_file, timestamp):
                 
             html += """
                     </ul>
+                </div>
+            </div>
+"""
+
+        # Add images if there are any
+        images = data.get('images', [])
+        if images:
+            html += f"""
+            <div>
+                <strong>Images Found:</strong> {len(images)}
+                <div class="links-list">
+                    <table style="width:100%; border-collapse: collapse;">
+                        <tr>
+                            <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Source</th>
+                            <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Alt Text</th>
+                            <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Dimensions</th>
+                        </tr>
+"""
+            for img in images:
+                src = img.get('src', 'No source')
+                alt = img.get('alt', 'No alt text')
+                width = img.get('width', 'N/A')
+                height = img.get('height', 'N/A')
+                dimensions = f"{width}x{height}" if width != 'N/A' and height != 'N/A' else 'N/A'
+                
+                html += f"""
+                        <tr>
+                            <td style="border: 1px solid #ddd; padding: 8px;"><a href="{src}" target="_blank">{src.split('/')[-1]}</a></td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">{alt}</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">{dimensions}</td>
+                        </tr>
+"""
+            
+            html += """
+                    </table>
+                </div>
+            </div>
+"""
+
+        # Add keywords if there are any
+        keywords = data.get('keywords', [])
+        keyword_scores = data.get('keyword_scores', {})
+        if keywords:
+            html += f"""
+            <div>
+                <strong>Keywords Found:</strong> {len(keywords)}
+                <div class="links-list">
+                    <table style="width:100%; border-collapse: collapse;">
+                        <tr>
+                            <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Keyword</th>
+                            <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Score</th>
+                        </tr>
+"""
+            for keyword in keywords:
+                score = keyword_scores.get(keyword, 'N/A')
+                html += f"""
+                        <tr>
+                            <td style="border: 1px solid #ddd; padding: 8px;">{keyword}</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">{score}</td>
+                        </tr>
+"""
+            
+            html += """
+                    </table>
+                </div>
+            </div>
+"""
+
+        # Add key phrases if there are any
+        keyphrases = data.get('keyphrases', [])
+        if keyphrases:
+            html += f"""
+            <div>
+                <strong>Key Phrases Found:</strong> {len(keyphrases)}
+                <div class="links-list">
+                    <ul>
+"""
+            for phrase in keyphrases:
+                html += f'                        <li>{phrase}</li>\n'
+                
+            html += """
+                    </ul>
+                </div>
+            </div>
+"""
+
+        # Add tables if there are any
+        tables = data.get('tables', [])
+        if tables:
+            html += f"""
+            <div>
+                <strong>Tables Found:</strong> {len(tables)}
+                <div class="links-list">
+"""
+            for i, table in enumerate(tables):
+                html += f"""
+                    <h4>Table {i+1}</h4>
+                    <table style="width:100%; border-collapse: collapse;">
+"""
+                for row in table:
+                    html += """
+                        <tr>
+"""
+                    for cell in row:
+                        html += f"""
+                            <td style="border: 1px solid #ddd; padding: 8px;">{cell}</td>
+"""
+                    html += """
+                        </tr>
+"""
+                html += """
+                    </table>
+                    <br>
+"""
+            
+            html += """
                 </div>
             </div>
 """

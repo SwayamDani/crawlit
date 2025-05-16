@@ -7,6 +7,8 @@ import argparse
 import sys
 import logging
 import datetime
+import json
+import os
 
 # Configure logging
 logging.basicConfig(
@@ -63,6 +65,16 @@ def parse_args():
     parser.add_argument("--images-output", default="image_output", 
                         help="Directory to save image information")
     
+    # Keyword extraction options
+    parser.add_argument("--extract-keywords", "-k", action="store_true", default=False,
+                        help="Extract keywords from crawled pages")
+    parser.add_argument("--keywords-output", default="keywords.json", 
+                        help="File to save extracted keywords")
+    parser.add_argument("--max-keywords", type=int, default=20,
+                        help="Maximum number of keywords to extract per page")
+    parser.add_argument("--min-word-length", type=int, default=3,
+                        help="Minimum length of words to consider as keywords")
+    
     return parser.parse_args()
 
 def main():
@@ -90,10 +102,17 @@ def main():
         args.min_rows != 1 or 
         args.min_columns != 2 or 
         args.max_table_depth is not None or
-        args.tables_format != "csv"
+        args.tables_format != "csv" or
+        args.extract_keywords
     ):
-        logger.warning("Table extraction parameters (--min-rows, --min-columns, --max-table-depth, --tables-format) require --user-agent crawlit/2.0")
+        logger.warning("Advanced features (table parameters, keyword extraction) require --user-agent crawlit/2.0")
         logger.warning("These parameters will be ignored with the current user agent.")
+        
+    # Check specifically for keyword extraction with wrong user agent
+    if args.extract_keywords and args.user_agent != "crawlit/2.0":
+        logger.warning("Keyword extraction (--extract-keywords) requires --user-agent crawlit/2.0")
+        logger.warning("To extract keywords, please use: --user-agent crawlit/2.0")
+        logger.warning("Continuing with standard crawl (no keyword extraction)")
     
     try:
         # Record start time for duration calculation
@@ -157,8 +176,8 @@ def main():
         
         # Handle image extraction if enabled
         if args.extract_images:
-            import os
-            import json
+            # os and json already imported at the top level
+            pass
             
             # Check if user is using crawlit/2.0 user agent for image extraction
             is_v2_user_agent = args.user_agent == "crawlit/2.0"
@@ -238,6 +257,73 @@ def main():
         # Save results to file in the specified format
         output_path = save_results(results, args.output_format, args.output, args.pretty_json)
         logger.info(f"Results saved to {output_path}")
+        
+        # Handle keyword extraction if enabled
+        if args.extract_keywords and args.user_agent == "crawlit/2.0":
+            logger.info(f"[crawlit/2.0] Processing keywords from crawled pages...")
+            
+            # Extract keywords from each page and compile them
+            keywords_data = {
+                "per_page": {},
+                "overall": {"keywords": {}, "keyphrases": []},
+                "metadata": {
+                    "total_pages": len(results),
+                    "extraction_time": datetime.datetime.now().isoformat(),
+                    "config": {
+                        "max_keywords": args.max_keywords,
+                        "min_word_length": args.min_word_length
+                    }
+                }
+            }
+            
+            # Process each page to extract keywords
+            for url, page_data in results.items():
+                if page_data.get('keywords') and 'text/html' in page_data.get('content_type', ''):
+                    page_keywords = page_data.get('keywords', [])
+                    page_keyphrases = page_data.get('keyphrases', [])
+                    keywords_data["per_page"][url] = {
+                        "keywords": page_keywords,
+                        "keyphrases": page_keyphrases,
+                        "scores": page_data.get('keyword_scores', {})
+                    }
+                    
+                    # Aggregate overall keyword frequencies
+                    for keyword in page_keywords:
+                        if keyword not in keywords_data["overall"]["keywords"]:
+                            keywords_data["overall"]["keywords"][keyword] = 0
+                        keywords_data["overall"]["keywords"][keyword] += 1
+                    
+                    # Aggregate keyphrases
+                    keywords_data["overall"]["keyphrases"].extend(page_keyphrases)
+            
+            # Sort overall keywords by frequency
+            keywords_data["overall"]["keywords"] = {k: v for k, v in sorted(
+                keywords_data["overall"]["keywords"].items(), 
+                key=lambda item: item[1], 
+                reverse=True
+            )}
+            
+            # Remove duplicate keyphrases and sort by length (longer first)
+            # First count occurrences in the original list
+            keyphrase_counts = {}
+            for phrase in keywords_data["overall"]["keyphrases"]:
+                if phrase not in keyphrase_counts:
+                    keyphrase_counts[phrase] = 0
+                keyphrase_counts[phrase] += 1
+            
+            # Then remove duplicates and sort by length and frequency
+            keyphrases_set = set(keywords_data["overall"]["keyphrases"])
+            keywords_data["overall"]["keyphrases"] = sorted(
+                list(keyphrases_set), 
+                key=lambda x: (len(x.split()), keyphrase_counts.get(x, 0)), 
+                reverse=True
+            )[:args.max_keywords]
+            
+            # Save keywords data to file
+            with open(args.keywords_output, 'w', encoding='utf-8') as f:
+                json.dump(keywords_data, f, indent=2, ensure_ascii=False)
+                
+            logger.info(f"Keyword extraction complete. Results saved to {args.keywords_output}")
         
         # Calculate and display crawl duration
         end_time = datetime.datetime.now()

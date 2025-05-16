@@ -7,5 +7,6 @@ This section provides detailed documentation for the `crawlit` package's API.
    :maxdepth: 2
    
    crawler
+   extractors
    output
    cli

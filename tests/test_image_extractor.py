@@ -4,11 +4,11 @@ test_image_extractor.py - Tests for the image extraction functionality
 """
 
 import unittest
-from crawlit.extractors.image_extractor import ImageExtractor
+from crawlit.extractors.image_extractor import ImageTagParser
 
 class TestImageExtractor(unittest.TestCase):
     def setUp(self):
-        self.extractor = ImageExtractor()
+        self.extractor = ImageTagParser()
         
     def test_extract_basic_image(self):
         html = """

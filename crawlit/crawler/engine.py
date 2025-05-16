@@ -10,7 +10,9 @@ from urllib.parse import urlparse, urljoin
 from .fetcher import fetch_page
 from .parser import extract_links
 from .robots import RobotsHandler
-from ..extractors.image_extractor import ImageExtractor
+from ..extractors.image_extractor import ImageTagParser
+from ..extractors.keyword_extractor import KeywordExtractor
+from ..extractors.tables import extract_tables
 
 logger = logging.getLogger(__name__)
 
@@ -70,14 +72,29 @@ class Crawler:
         else:
             logger.info("Robots.txt handling disabled")
             
-        # Initialize extractors - image extraction is only available with crawlit/2.0 user agent
+        # Initialize extractors - advanced features are only available with crawlit/2.0 user agent
         self.image_extraction_enabled = self.user_agent == "crawlit/2.0"
+        self.keyword_extraction_enabled = self.user_agent == "crawlit/2.0"
+        self.table_extraction_enabled = self.user_agent == "crawlit/2.0"
+        
         if self.image_extraction_enabled:
-            self.image_extractor = ImageExtractor()
+            self.image_extractor = ImageTagParser()
             logger.info("Image extraction enabled (crawlit/2.0)")
         else:
             self.image_extractor = None
             logger.info("Image extraction disabled (requires crawlit/2.0 user agent)")
+            
+        if self.keyword_extraction_enabled:
+            self.keyword_extractor = KeywordExtractor()
+            logger.info("Keyword extraction enabled (crawlit/2.0)")
+        else:
+            self.keyword_extractor = None
+            logger.info("Keyword extraction disabled (requires crawlit/2.0 user agent)")
+            
+        if self.table_extraction_enabled:
+            logger.info("Table extraction enabled (crawlit/2.0)")
+        else:
+            logger.info("Table extraction disabled (requires crawlit/2.0 user agent)")
 
     def _extract_base_domain(self, url):
         """Extract the base domain from a URL"""
@@ -150,6 +167,25 @@ class Crawler:
                             images = self.image_extractor.extract_images(response.text)
                             self.results[current_url]['images'] = images
                             logger.debug(f"Extracted {len(images)} images from {current_url}")
+                        
+                        # Extract keywords from the page if extraction is enabled
+                        if self.keyword_extraction_enabled:
+                            keywords_data = self.keyword_extractor.extract_keywords(response.text, include_scores=True)
+                            self.results[current_url]['keywords'] = keywords_data['keywords']
+                            self.results[current_url]['keyword_scores'] = keywords_data['scores']
+                            keyphrases = self.keyword_extractor.extract_keyphrases(response.text)
+                            self.results[current_url]['keyphrases'] = keyphrases
+                            logger.debug(f"Extracted {len(keywords_data['keywords'])} keywords and {len(keyphrases)} keyphrases from {current_url}")
+                        
+                        # Extract tables from the page if extraction is enabled
+                        if self.table_extraction_enabled:
+                            try:
+                                tables = extract_tables(response.text, min_rows=1, min_columns=2)
+                                self.results[current_url]['tables'] = tables
+                                logger.debug(f"Extracted {len(tables)} tables from {current_url}")
+                            except Exception as e:
+                                logger.error(f"Error extracting tables from {current_url}: {e}")
+                                self.results[current_url]['tables'] = []
                         
                         # Add new links to the queue
                         for link in links:

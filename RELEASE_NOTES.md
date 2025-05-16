@@ -1,3 +1,40 @@
+# Crawlit Release Notes
+
+## Version 0.2.0 (May 15, 2025)
+
+We are excited to announce version 0.2.0 of Crawlit with several powerful new features!
+
+### New Features
+
+- **Image Extraction**: Extract and analyze images including metadata, dimensions, and accessibility information
+  - New `image_extractor.py` module with `ImageTagParser` class
+  - Support for image metadata (src, alt, width, height, etc.)
+  - Decorative image identification for accessibility checking
+  - Parent element context for better image understanding
+
+- **Table Extraction**: Enhanced capabilities for extracting complex HTML tables
+  - Support for complex table structures with rowspan and colspan
+  - Multiple output formats (CSV, JSON, dictionaries)
+  - Configurable minimum rows and columns
+
+- **Keyword Extraction**: Extract and rank important terms from page content
+  - Stop word filtering and customizable word length
+  - Smart content weighting based on HTML structure
+  - Keyphrase extraction for multi-word terms
+  - Relevance scoring
+
+### Improvements
+
+- Updated documentation with examples for all new features
+- New examples demonstrating each feature
+- Extended CLI with options for new extraction capabilities
+
+### Documentation
+
+- Added documentation for the extractors module
+- Updated API reference
+- Added example usage for all new features
+
 # Crawlit 0.1.0 - Release Notes
 
 We are pleased to announce the first public release of Crawlit - a modular, ethical Python web crawler.

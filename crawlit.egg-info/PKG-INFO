@@ -45,7 +45,7 @@ A powerful, modular, and ethical web crawler built in Python. Designed for secur
 - **Programmatic API**: Use as a library in your own Python code
 - **Version-dependent Features**: 
   - `crawlit/1.0`: Standard web crawling capabilities
-  - `crawlit/2.0`: Enhanced features including multi-depth table extraction
+  - `crawlit/2.0`: Enhanced features including multi-depth table extraction, keyword extraction, and image analysis
 
 ## 📋 Requirements
 
@@ -161,6 +161,10 @@ crawlit --url https://example.com \
 | `--allow-external`, `-e` | Allow crawling URLs outside initial domain | False |
 | `--summary`, `-s` | Show a summary of crawl results | False |
 | `--verbose`, `-v` | Verbose output | False |
+| `--extract-keywords`, `-k` | Extract keywords from crawled pages (requires crawlit/2.0) | False |
+| `--keywords-output` | File to save extracted keywords | keywords.json |
+| `--max-keywords` | Maximum number of keywords to extract per page | 20 |
+| `--min-word-length` | Minimum length of words to consider as keywords | 3 |
 | `--help`, `-h` | Show help message | - |
 
 ## 📊 Advanced Table Extraction
@@ -193,6 +197,53 @@ The advanced table extraction provides:
 - Thorough cell content cleaning (HTML entities, whitespace, etc.)
 
 For examples, see `examples/enhanced_table_extraction.py` and `examples/rowspan_colspan_example.py`.
+
+## 🔍 Keyword Extraction
+
+Crawlit 2.0 includes sophisticated keyword extraction capabilities:
+
+```python
+from crawlit import Crawler
+from crawlit.extractors.keyword_extractor import KeywordExtractor
+
+# Option 1: Use the crawler with crawlit/2.0 user agent for automatic keyword extraction
+crawler = Crawler(
+    start_url="https://example.com",
+    user_agent="crawlit/2.0",  # Required for keyword extraction
+    max_depth=2
+)
+crawler.crawl()
+results = crawler.get_results()
+
+# Access extracted keywords from results
+for url, data in results.items():
+    if 'keywords' in data:
+        print(f"Keywords for {url}: {data['keywords']}")
+    if 'keyphrases' in data:
+        print(f"Key phrases: {data['keyphrases']}")
+
+# Option 2: Use the keyword extractor directly on HTML content
+extractor = KeywordExtractor(min_word_length=4, max_keywords=10)
+html_content = "<html><body><h1>Keyword Extraction Example</h1><p>This demonstrates advanced keyword extraction capability.</p></body></html>"
+
+# Get keywords with scores
+keywords_data = extractor.extract_keywords(html_content, include_scores=True)
+print(f"Keywords: {keywords_data['keywords']}")
+print(f"Scores: {keywords_data['scores']}")
+
+# Get multi-word phrases
+keyphrases = extractor.extract_keyphrases(html_content)
+print(f"Key phrases: {keyphrases}")
+```
+
+The keyword extraction offers:
+- Smart weighting of content based on HTML structure (headings, titles, etc.)
+- Automatic filtering of common stop words
+- Multi-word phrase extraction for more context-rich keywords
+- Scoring based on frequency and relevance
+- Integration with crawl results
+
+For a complete example, see `examples/keyword_extraction.py`.
 
 ## 🏗️ Project Structure
 

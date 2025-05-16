@@ -23,6 +23,9 @@ Features
 * **Domain Filtering**: Restrict crawling to specific domains or subdomains
 * **Robust Error Handling**: Gracefully manage connection issues and malformed pages
 * **Multiple Output Formats**: Export results as JSON, CSV, or plain text
+* **Advanced Table Extraction**: Extract tables with support for complex structures and cell spanning
+* **Image Extraction**: Extract and analyze images including alt text and accessibility information
+* **Keyword Extraction**: Identify key terms and phrases from webpage content
 * **Detailed Logging**: Comprehensive logging of all crawler activities
 * **Command Line Interface**: Simple, powerful CLI for easy usage
 * **Programmatic API**: Use as a library in your own Python code

@@ -12,6 +12,7 @@ recursive-include examples *
 # Include core modules
 recursive-include crawlit/crawler *
 recursive-include crawlit/output *
+recursive-include crawlit/extractors *
 
 # Include tests
 recursive-include tests *
