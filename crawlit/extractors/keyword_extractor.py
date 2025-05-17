@@ -64,12 +64,32 @@ class KeywordExtractor:
         no_script_html = re.sub(r'<script.*?>.*?</script>', ' ', html_content, flags=re.DOTALL)
         no_style_html = re.sub(r'<style.*?>.*?</style>', ' ', no_script_html, flags=re.DOTALL)
         
-        # Extract text content from specific meaningful tags (h1, h2, h3, p, title)
-        title_text = re.findall(r'<title>(.*?)</title>', no_style_html, re.DOTALL)
-        h1_text = re.findall(r'<h1.*?>(.*?)</h1>', no_style_html, re.DOTALL|re.IGNORECASE)
-        h2_text = re.findall(r'<h2.*?>(.*?)</h2>', no_style_html, re.DOTALL|re.IGNORECASE)
-        h3_text = re.findall(r'<h3.*?>(.*?)</h3>', no_style_html, re.DOTALL|re.IGNORECASE)
-        p_text = re.findall(r'<p.*?>(.*?)</p>', no_style_html, re.DOTALL|re.IGNORECASE)
+        # Extract text content from specific meaningful tags using more lenient patterns
+        # that can handle unclosed tags better
+        title_text = re.findall(r'<title[^>]*>(.*?)</title>', no_style_html, re.DOTALL) or \
+                    re.findall(r'<title[^>]*>(.*)', no_style_html, re.DOTALL)  # Fallback for unclosed tags
+        
+        h1_text = re.findall(r'<h1[^>]*>(.*?)</h1>', no_style_html, re.DOTALL|re.IGNORECASE) or \
+                 re.findall(r'<h1[^>]*>(.*?)(?=<|\Z)', no_style_html, re.DOTALL|re.IGNORECASE)  # Fallback
+        
+        h2_text = re.findall(r'<h2[^>]*>(.*?)</h2>', no_style_html, re.DOTALL|re.IGNORECASE) or \
+                 re.findall(r'<h2[^>]*>(.*?)(?=<|\Z)', no_style_html, re.DOTALL|re.IGNORECASE)  # Fallback
+        
+        h3_text = re.findall(r'<h3[^>]*>(.*?)</h3>', no_style_html, re.DOTALL|re.IGNORECASE) or \
+                 re.findall(r'<h3[^>]*>(.*?)(?=<|\Z)', no_style_html, re.DOTALL|re.IGNORECASE)  # Fallback
+        
+        p_text = re.findall(r'<p[^>]*>(.*?)</p>', no_style_html, re.DOTALL|re.IGNORECASE) or \
+                re.findall(r'<p[^>]*>(.*?)(?=<p|<div|<h|</body>|\Z)', no_style_html, re.DOTALL|re.IGNORECASE)  # Fallback
+        
+        # If all specific tag extraction failed, try a more aggressive approach
+        if not any([title_text, h1_text, h2_text, h3_text, p_text]):
+            logger.debug("Specific tag extraction failed, trying fallback content extraction")
+            # Extract text between any tags
+            body_content = re.search(r'<body[^>]*>(.*?)</body>', no_style_html, re.DOTALL|re.IGNORECASE)
+            if body_content:
+                # Just strip all HTML tags and use whatever text remains
+                clean_body = re.sub(r'<[^>]*>', ' ', body_content.group(1))
+                p_text = [clean_body]
         
         # Build text with priority weighting
         extracted_text = []
@@ -88,6 +108,12 @@ class KeywordExtractor:
         text = ' '.join(extracted_text)
         clean_text = re.sub(r'<.*?>', ' ', text)  # Remove any remaining HTML tags
         clean_text = re.sub(r'\s+', ' ', clean_text).strip()  # Normalize whitespace
+        
+        # Final fallback: if nothing was extracted, just strip all HTML tags from the original content
+        if not clean_text:
+            logger.debug("All extraction methods failed, using raw content with tags stripped")
+            clean_text = re.sub(r'<[^>]*>', ' ', no_style_html)
+            clean_text = re.sub(r'\s+', ' ', clean_text).strip()
         
         return clean_text
     
@@ -136,6 +162,12 @@ class KeywordExtractor:
         if not tokens:
             logger.warning("No valid tokens found in the content")
             return {"keywords": []} if not include_scores else {"keywords": [], "scores": {}}
+            
+        # Skip keyword extraction for very minimal content (less than 10 words)
+        raw_word_count = len(text.split())
+        if raw_word_count < 10:
+            logger.debug(f"Content too small for keyword extraction ({raw_word_count} words)")
+            return {"keywords": []} if not include_scores else {"keywords": [], "scores": {}}
         
         # Count frequencies
         word_freq = Counter(tokens)
@@ -169,6 +201,12 @@ class KeywordExtractor:
         """
         # Extract text from HTML
         text = self.extract_text_from_html(html_content)
+        
+        # Skip keyphrase extraction for very minimal content (less than 10 words)
+        raw_word_count = len(text.split())
+        if raw_word_count < 10:
+            logger.debug(f"Content too small for keyphrase extraction ({raw_word_count} words)")
+            return []
         
         # Clean and normalize text
         text = text.lower()

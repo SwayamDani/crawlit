@@ -8,7 +8,7 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-def fetch_page(url, user_agent="crawlit/1.0", max_retries=3, timeout=10):
+def fetch_page(url, user_agent="crawlit/2.0", max_retries=3, timeout=10):
     """
     Fetch a web page with retries and proper error handling
     
@@ -30,6 +30,7 @@ def fetch_page(url, user_agent="crawlit/1.0", max_retries=3, timeout=10):
     retries = 0
     status_code = None
     
+    last_error_type = None
     while retries <= max_retries:
         try:
             logger.debug(f"Requesting {url} (attempt {retries + 1}/{max_retries + 1})")
@@ -43,7 +44,16 @@ def fetch_page(url, user_agent="crawlit/1.0", max_retries=3, timeout=10):
             # Check if the request was successful
             if response.status_code == 200:
                 return True, response, status_code
+            # For 5xx server errors, retry if we haven't exceeded max retries
+            elif 500 <= response.status_code < 600:
+                logger.warning(f"HTTP Error {response.status_code} for {url}, will retry")
+                retries += 1
+                # If we've exceeded max retries, fail
+                if retries > max_retries:
+                    logger.warning(f"Max retries ({max_retries}) exceeded for {url}")
+                    return False, f"HTTP Error: {response.status_code}", status_code
             else:
+                # For client errors (4xx) and other status codes, don't retry
                 logger.warning(f"HTTP Error {response.status_code} for {url}")
                 return False, f"HTTP Error: {response.status_code}", status_code
                 
@@ -51,11 +61,13 @@ def fetch_page(url, user_agent="crawlit/1.0", max_retries=3, timeout=10):
             logger.warning(f"Timeout error for {url} (attempt {retries + 1})")
             retries += 1
             status_code = 408  # Request Timeout
+            last_error_type = "timeout"
             
         except requests.exceptions.ConnectionError:
             logger.warning(f"Connection error for {url} (attempt {retries + 1})")
             retries += 1
             status_code = 503  # Service Unavailable
+            last_error_type = "connection"
             
         except requests.exceptions.TooManyRedirects:
             logger.warning(f"Too many redirects for {url}")
@@ -65,11 +77,15 @@ def fetch_page(url, user_agent="crawlit/1.0", max_retries=3, timeout=10):
             logger.error(f"Request failed for {url}: {e}")
             return False, str(e), status_code or 500
     
-    return False, f"Max retries ({max_retries}) exceeded", status_code or 429
+    # Include error type in the message if known
+    if last_error_type:
+        return False, f"Max retries ({max_retries}) exceeded due to {last_error_type} errors", status_code or 429
+    else:
+        return False, f"Max retries ({max_retries}) exceeded", status_code or 429
 
 # Add fetch_url as an alias for fetch_page to make tests pass
 # This provides backward compatibility with test code
-def fetch_url(url, user_agent="crawlit/1.0", max_retries=3, timeout=10):
+def fetch_url(url, user_agent="crawlit/2.0", max_retries=3, timeout=10):
     """
     Alias for fetch_page - maintained for backward compatibility with tests
     

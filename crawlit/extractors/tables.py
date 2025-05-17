@@ -34,7 +34,7 @@ def clean_cell_content(content: str) -> str:
     
     return clean_content
 
-def extract_tables(html_content: str, min_rows: int = 1, min_columns: int = 2) -> List[List[List[str]]]:
+def extract_tables(html_content: str, min_rows: int = 1, min_columns: int = 1) -> List[List[List[str]]]:
     """
     Extract all tables from HTML content with advanced features.
     
@@ -423,7 +423,7 @@ def extract_and_save_tables_from_crawl(results: Dict[str, Any],
                                       output_dir: str,
                                       output_format: str = "csv",
                                       min_rows: int = 1,
-                                      min_columns: int = 2,
+                                      min_columns: int = 1,
                                       max_depth: int = None) -> Dict[str, Any]:
     """
     Extract tables from all pages in a crawl result and save them to files.

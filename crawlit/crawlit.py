@@ -38,7 +38,7 @@ def parse_args():
     parser.add_argument("--ignore-robots", "-i", action="store_true", default=False, 
                        help="Ignore robots.txt rules when crawling")
     parser.add_argument("--delay", type=float, default=0.1, help="Delay between requests (seconds)")
-    parser.add_argument("--user-agent", "-a", default="crawlit/1.0", help="Custom User-Agent string")
+    parser.add_argument("--user-agent", "-a", default="crawlit/2.0", help="Custom User-Agent string")
     parser.add_argument("--allow-external", "-e", action="store_true", default=False, 
                         help="Allow crawling URLs outside the initial domain")
     parser.add_argument("--summary", "-s", action="store_true", default=False,
@@ -84,48 +84,22 @@ def main():
     # Set logging level based on verbosity
     if args.verbose:
         logger.setLevel(logging.DEBUG)
-        
-    # Check if trying to use table extraction with crawlit/1.0
-    if args.extract_tables and args.user_agent != "crawlit/2.0":
-        logger.warning("Table extraction (--extract-tables) requires --user-agent crawlit/2.0")
-        logger.warning("To extract tables, please use: --user-agent crawlit/2.0")
-        logger.warning("Continuing with standard crawl (no table extraction)")
-    
-    # Check if trying to use image extraction with crawlit/1.0
-    if args.extract_images and args.user_agent != "crawlit/2.0":
-        logger.warning("Image extraction (--extract-images) requires --user-agent crawlit/2.0")
-        logger.warning("To extract images, please use: --user-agent crawlit/2.0")
-        logger.warning("Continuing with standard crawl (no image extraction)")
-    
-    # Check if using other v2.0 features with old user agent
-    if args.user_agent != "crawlit/2.0" and (
-        args.min_rows != 1 or 
-        args.min_columns != 2 or 
-        args.max_table_depth is not None or
-        args.tables_format != "csv" or
-        args.extract_keywords
-    ):
-        logger.warning("Advanced features (table parameters, keyword extraction) require --user-agent crawlit/2.0")
-        logger.warning("These parameters will be ignored with the current user agent.")
-        
-    # Check specifically for keyword extraction with wrong user agent
-    if args.extract_keywords and args.user_agent != "crawlit/2.0":
-        logger.warning("Keyword extraction (--extract-keywords) requires --user-agent crawlit/2.0")
-        logger.warning("To extract keywords, please use: --user-agent crawlit/2.0")
-        logger.warning("Continuing with standard crawl (no keyword extraction)")
     
     try:
         # Record start time for duration calculation
         start_time = datetime.datetime.now()
         
-        # Initialize the crawler
+        # Initialize the crawler with feature flags
         crawler = Crawler(
             start_url=args.url,
             max_depth=args.depth,
             internal_only=not args.allow_external,  # Invert the allow-external flag
             user_agent=args.user_agent,
             delay=args.delay,
-            respect_robots=not args.ignore_robots  # Invert the ignore-robots flag
+            respect_robots=not args.ignore_robots,  # Invert the ignore-robots flag
+            enable_image_extraction=args.extract_images,
+            enable_keyword_extraction=args.extract_keywords,
+            enable_table_extraction=args.extract_tables
         )
         
         # Start crawling
@@ -166,87 +140,76 @@ def main():
                 
                 # Log the results
                 if stats["total_tables_found"] > 0:
-                    logger.info(f"[crawlit/2.0] Extracted {stats['total_tables_found']} tables from {stats['total_pages_with_tables']} pages, saved to {stats['total_files_saved']} files in {args.tables_output}/")
+                    logger.info(f"Extracted {stats['total_tables_found']} tables from {stats['total_pages_with_tables']} pages, saved to {stats['total_files_saved']} files in {args.tables_output}/")
                     
                     # Log tables by depth
                     for depth, count in sorted(stats["tables_by_depth"].items()):
-                        logger.debug(f"[crawlit/2.0] Depth {depth}: {count} tables found")
+                        logger.debug(f"Depth {depth}: {count} tables found")
                 else:
-                    logger.info("[crawlit/2.0] No tables found on any crawled pages.")
+                    logger.info("No tables found on any crawled pages.")
         
         # Handle image extraction if enabled
         if args.extract_images:
             # os and json already imported at the top level
-            pass
             
-            # Check if user is using crawlit/2.0 user agent for image extraction
-            is_v2_user_agent = args.user_agent == "crawlit/2.0"
+            # Process images from crawled pages
+            logger.info(f"Processing images from crawled pages...")
             
-            if not is_v2_user_agent:
-                # Image extraction is only available with crawlit/2.0
-                logger.warning("Image extraction is only available with --user-agent crawlit/2.0")
-                logger.warning("To extract images, please use: --user-agent crawlit/2.0")
-                logger.warning("Continuing with standard crawl (no image extraction)")
+            # Create output directory if it doesn't exist
+            os.makedirs(args.images_output, exist_ok=True)
+             # Process results and extract images
+            total_images = 0
+            pages_with_images = 0
+            images_by_depth = {}
+            urls_with_images = []
+            
+            for url, page_data in results.items():
+                if not page_data.get('success', False) or 'images' not in page_data:
+                    continue
+                    
+                images = page_data.get('images', [])
+                if not images:
+                    continue
+                
+                # Count this page's images
+                num_images = len(images)
+                total_images += num_images
+                pages_with_images += 1
+                urls_with_images.append(url)
+                
+                # Track images by depth
+                depth = page_data.get('depth', 0)
+                images_by_depth[depth] = images_by_depth.get(depth, 0) + num_images
+                
+                # Save images data for this page
+                url_filename = url.replace('://', '_').replace('/', '_').replace(':', '_')
+                if len(url_filename) > 100:
+                    url_filename = url_filename[:100]  # Truncate very long URLs
+                    
+                output_file = os.path.join(args.images_output, f"{url_filename}.json")
+                with open(output_file, 'w', encoding='utf-8') as f:
+                    json.dump({
+                        'url': url,
+                        'images_count': num_images,
+                        'images': images
+                    }, f, indent=2)
+            
+            # Report results
+            if total_images > 0:
+                logger.info(f"Extracted {total_images} images from {pages_with_images} pages")
+                logger.info(f"Image data saved to {args.images_output}/ directory")
+                
+                # Log images by depth
+                for depth, count in sorted(images_by_depth.items()):
+                    logger.debug(f"Depth {depth}: {count} images found")
+                    
+                # Log some example URLs with images
+                for url in urls_with_images[:3]:  # Show first 3 examples
+                    logger.debug(f"Images found on: {url}")
+                if len(urls_with_images) > 3:
+                    logger.debug(f"... and {len(urls_with_images) - 3} more pages with images")
             else:
-                # Image extraction feature - only available in crawlit/2.0
-                logger.info(f"[crawlit/2.0] Processing images from crawled pages...")
-                
-                # Create output directory if it doesn't exist
-                os.makedirs(args.images_output, exist_ok=True)
-                
-                # Process results and extract images
-                total_images = 0
-                pages_with_images = 0
-                images_by_depth = {}
-                urls_with_images = []
-                
-                for url, page_data in results.items():
-                    if not page_data.get('success', False) or 'images' not in page_data:
-                        continue
-                        
-                    images = page_data.get('images', [])
-                    if not images:
-                        continue
-                    
-                    # Count this page's images
-                    num_images = len(images)
-                    total_images += num_images
-                    pages_with_images += 1
-                    urls_with_images.append(url)
-                    
-                    # Track images by depth
-                    depth = page_data.get('depth', 0)
-                    images_by_depth[depth] = images_by_depth.get(depth, 0) + num_images
-                    
-                    # Save images data for this page
-                    url_filename = url.replace('://', '_').replace('/', '_').replace(':', '_')
-                    if len(url_filename) > 100:
-                        url_filename = url_filename[:100]  # Truncate very long URLs
-                        
-                    output_file = os.path.join(args.images_output, f"{url_filename}.json")
-                    with open(output_file, 'w', encoding='utf-8') as f:
-                        json.dump({
-                            'url': url,
-                            'images_count': num_images,
-                            'images': images
-                        }, f, indent=2)
-                
-                # Report results
-                if total_images > 0:
-                    logger.info(f"[crawlit/2.0] Extracted {total_images} images from {pages_with_images} pages")
-                    logger.info(f"[crawlit/2.0] Image data saved to {args.images_output}/ directory")
-                    
-                    # Log images by depth
-                    for depth, count in sorted(images_by_depth.items()):
-                        logger.debug(f"[crawlit/2.0] Depth {depth}: {count} images found")
-                        
-                    # Log some example URLs with images
-                    for url in urls_with_images[:3]:  # Show first 3 examples
-                        logger.debug(f"[crawlit/2.0] Images found on: {url}")
-                    if len(urls_with_images) > 3:
-                        logger.debug(f"[crawlit/2.0] ... and {len(urls_with_images) - 3} more pages with images")
-                else:
-                    logger.info("[crawlit/2.0] No images found on any crawled pages.")
+                logger.info("No images found on any crawled pages.")
         
         # Report skipped external URLs if domain restriction is enabled
         if not args.allow_external and hasattr(crawler, 'get_skipped_external_urls'):

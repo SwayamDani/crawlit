@@ -8,8 +8,6 @@ import re
 from urllib.parse import urlparse, urljoin
 import logging
 
-logger = logging.getLogger(__name__)
-
 def extract_links(html_content, base_url, delay=0.1):
     """
     Extract links from HTML content from various elements
@@ -22,8 +20,9 @@ def extract_links(html_content, base_url, delay=0.1):
     Returns:
         list: List of absolute URLs found in the HTML
     """
-    # Introduce a small delay to be polite to the server
-    time.sleep(delay)
+    # Note: The delay parameter is not used here anymore.
+    # Delay handling is managed at the crawler engine level between HTTP requests.
+    # This avoids double delays (one for fetching, one for parsing).
     
     # Convert to string if bytes
     if isinstance(html_content, bytes):
@@ -31,6 +30,7 @@ def extract_links(html_content, base_url, delay=0.1):
             html_content = html_content.decode('utf-8')
         except UnicodeDecodeError:
             html_content = html_content.decode('latin-1')
+    
     
     links = set()  # Using a set to avoid duplicates
     
@@ -54,7 +54,9 @@ def extract_links(html_content, base_url, delay=0.1):
         pattern = r'<{0}\s+[^>]*{1}=[\'"]([^\'"]+)[\'"][^>]*>'.format(tag_name, attr_name)
         
         # Find all matches
-        for match in re.finditer(pattern, html_content, re.IGNORECASE):
+        matches = list(re.finditer(pattern, html_content, re.IGNORECASE))
+        
+        for match in matches:
             url = match.group(1).strip()
             
             # Process the URL
@@ -94,5 +96,9 @@ def _process_url(url, base_url):
     normalized_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
     if parsed.query:
         normalized_url += f"?{parsed.query}"
-        
+    
+    # Remove trailing slashes for consistency unless the path is just "/"
+    if normalized_url.endswith('/') and normalized_url[-2] != '/':
+        normalized_url = normalized_url[:-1]
+    
     return normalized_url
