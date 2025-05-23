@@ -9,6 +9,7 @@ import logging
 import datetime
 import json
 import os
+import asyncio
 
 # Configure logging
 logging.basicConfig(
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 # Import the crawler components
 from crawlit.crawler.engine import Crawler
+from crawlit.crawler.async_engine import AsyncCrawler
 from crawlit.output.formatters import save_results, generate_summary_report
 
 def parse_args():
@@ -44,6 +46,10 @@ def parse_args():
     parser.add_argument("--summary", "-s", action="store_true", default=False,
                         help="Show a summary of crawl results at the end")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+    parser.add_argument("--async", action="store_true", default=False,
+                        help="Enable asynchronous crawling for faster performance")
+    parser.add_argument("--concurrency", type=int, default=15, 
+                        help="Maximum number of concurrent requests for async crawling")
     
     # Table extraction options
     parser.add_argument("--extract-tables", "-t", action="store_true", default=False,
@@ -76,6 +82,7 @@ def parse_args():
                         help="Minimum length of words to consider as keywords")
     
     return parser.parse_args()
+    
 
 def main():
     """Main entry point for the crawler"""
@@ -89,24 +96,49 @@ def main():
         # Record start time for duration calculation
         start_time = datetime.datetime.now()
         
-        # Initialize the crawler with feature flags
-        crawler = Crawler(
-            start_url=args.url,
-            max_depth=args.depth,
-            internal_only=not args.allow_external,  # Invert the allow-external flag
-            user_agent=args.user_agent,
-            delay=args.delay,
-            respect_robots=not args.ignore_robots,  # Invert the ignore-robots flag
-            enable_image_extraction=args.extract_images,
-            enable_keyword_extraction=args.extract_keywords,
-            enable_table_extraction=args.extract_tables
-        )
-        
-        # Start crawling
+        # Log common setup info
         logger.info(f"Starting crawl from: {args.url}")
         logger.info(f"Domain restriction is {'disabled' if args.allow_external else 'enabled'}")
-        crawler.crawl()
         
+        # Determine whether to use async crawling
+        if getattr(args, 'async', False):
+            logger.info("Using asynchronous crawling mode")
+            
+            # Initialize the async crawler with feature flags
+            crawler = AsyncCrawler(
+                start_url=args.url,
+                max_depth=args.depth,
+                internal_only=not args.allow_external,  # Invert the allow-external flag
+                user_agent=args.user_agent,
+                delay=args.delay,
+                respect_robots=not args.ignore_robots,  # Invert the ignore-robots flag
+                enable_image_extraction=args.extract_images,
+                enable_keyword_extraction=args.extract_keywords,
+                enable_table_extraction=args.extract_tables,
+                max_concurrency=args.concurrency
+            )
+            
+            # Start crawling asynchronously
+            asyncio.run(crawler.crawl())
+        else:
+            logger.info("Using synchronous crawling mode")
+            
+            # Initialize the crawler with feature flags
+            crawler = Crawler(
+                start_url=args.url,
+                max_depth=args.depth,
+                internal_only=not args.allow_external,  # Invert the allow-external flag
+                user_agent=args.user_agent,
+                delay=args.delay,
+                respect_robots=not args.ignore_robots,  # Invert the ignore-robots flag
+                enable_image_extraction=args.extract_images,
+                enable_keyword_extraction=args.extract_keywords,
+                enable_table_extraction=args.extract_tables
+            )
+            
+            # Start crawling
+            crawler.crawl()
+            
         # Get results
         results = crawler.get_results()
         logger.info(f"Crawl complete. Visited {len(results)} URLs.")
