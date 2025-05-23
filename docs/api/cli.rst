@@ -11,8 +11,8 @@ For detailed CLI usage instructions, including all available options and example
 CLI Module
 ---------
 
-.. automodule:: crawlit.crawlit
-   :members:
+.. automodule:: crawlit
+   :members: cli_main
    :undoc-members:
    :show-inheritance:
 

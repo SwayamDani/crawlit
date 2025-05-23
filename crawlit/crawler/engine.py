@@ -186,6 +186,7 @@ class Crawler:
                     content_type = response.headers.get('Content-Type', '')
                     if 'text/html' in content_type:
                         # Store HTML content for extraction features (like tables)
+                        # response.text is a direct attribute in requests.Response
                         self.results[current_url]['html_content'] = response.text
                         
                         # Extract canonical URL if present

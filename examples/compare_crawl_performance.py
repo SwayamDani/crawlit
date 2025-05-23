@@ -13,8 +13,7 @@ import logging
 from datetime import datetime
 
 # Import both crawler types from crawlit
-from crawlit.crawler.engine import Crawler
-from crawlit.crawler.async_engine import AsyncCrawler
+from crawlit import Crawler, AsyncCrawler
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, 

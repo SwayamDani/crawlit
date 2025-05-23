@@ -228,11 +228,13 @@ class AsyncCrawler:
                     content_type = response.headers.get('Content-Type', '')
                     if 'text/html' in content_type and response.text is not None:
                         # Store HTML content for extraction features (like tables)
-                        self.results[current_url]['html_content'] = response.text
+                        # Need to await the text() method, not store the method itself
+                        html_content = await response.text()
+                        self.results[current_url]['html_content'] = html_content
                         
                         # Extract canonical URL if present
                         canonical_pattern = r'<link\s+[^>]*rel=[\'"]canonical[\'"][^>]*href=[\'"]([^\'"]+)[\'"][^>]*>'
-                        canonical_match = re.search(canonical_pattern, response.text, re.IGNORECASE)
+                        canonical_match = re.search(canonical_pattern, html_content, re.IGNORECASE)
                         if canonical_match:
                             canonical_url = canonical_match.group(1).strip()
                             # Convert to absolute URL if it's relative
@@ -241,28 +243,28 @@ class AsyncCrawler:
                             logger.debug(f"Canonical URL for {current_url}: {canonical_url}")
                         
                         # Extract links from HTML content
-                        links = extract_links(response.text, current_url, self.delay)
+                        links = extract_links(html_content, current_url, self.delay)
                         logger.debug(f"Extracted {len(links)} links from HTML content at {current_url}")
                         
                         # Extract images from the page if extraction is enabled
                         if self.image_extraction_enabled:
-                            images = self.image_extractor.extract_images(response.text)
+                            images = self.image_extractor.extract_images(html_content)
                             self.results[current_url]['images'] = images
                             logger.debug(f"Extracted {len(images)} images from {current_url}")
                         
                         # Extract keywords from the page if extraction is enabled
                         if self.keyword_extraction_enabled:
-                            keywords_data = self.keyword_extractor.extract_keywords(response.text, include_scores=True)
+                            keywords_data = self.keyword_extractor.extract_keywords(html_content, include_scores=True)
                             self.results[current_url]['keywords'] = keywords_data['keywords']
                             self.results[current_url]['keyword_scores'] = keywords_data['scores']
-                            keyphrases = self.keyword_extractor.extract_keyphrases(response.text)
+                            keyphrases = self.keyword_extractor.extract_keyphrases(html_content)
                             self.results[current_url]['keyphrases'] = keyphrases
                             logger.debug(f"Extracted {len(keywords_data['keywords'])} keywords and {len(keyphrases)} keyphrases from {current_url}")
                         
                         # Extract tables from the page if extraction is enabled
                         if self.table_extraction_enabled:
                             try:
-                                tables = extract_tables(response.text, min_rows=1, min_columns=1)
+                                tables = extract_tables(html_content, min_rows=1, min_columns=1)
                                 self.results[current_url]['tables'] = tables
                                 logger.debug(f"Extracted {len(tables)} tables from {current_url}")
                             except Exception as e:

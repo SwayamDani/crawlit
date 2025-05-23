@@ -1,6 +1,6 @@
 # Crawlit Release Notes
 
-## Version 0.2.0 (May 15, 2025)
+## Version 0.2.0 (May 23, 2025)
 
 We are excited to announce version 0.2.0 of Crawlit with several powerful new features!
 
@@ -28,6 +28,7 @@ We are excited to announce version 0.2.0 of Crawlit with several powerful new fe
 - Updated documentation with examples for all new features
 - New examples demonstrating each feature
 - Extended CLI with options for new extraction capabilities
+- Standardized response interface between sync and async fetchers for better API consistency
 
 ### Documentation
 

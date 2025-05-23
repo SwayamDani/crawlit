@@ -17,7 +17,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 
 # Use the installed module instead of the script directly for testing
-CRAWLIT_CLI = [sys.executable, "-m", "crawlit.crawlit"]
+CRAWLIT_CLI = [sys.executable, "-m", "crawlit"]
 
 
 class TestCrawlitCLI:
@@ -632,7 +632,7 @@ class TestCrawlitCLI:
         cmd = CRAWLIT_CLI + [
             "--url", mock_website_with_tables,
             "--depth", "1",
-            "--user-agent", "crawlit/2.0",
+            "--user-agent", "custom-agent/1.0",
             "--extract-tables",
             "--tables-output", str(tables_output),
             "--tables-format", "csv",
@@ -666,7 +666,7 @@ class TestCrawlitCLI:
         cmd = CRAWLIT_CLI + [
             "--url", mock_website_with_images,
             "--depth", "1",
-            "--user-agent", "crawlit/2.0",
+            "--user-agent", "alternative-agent/1.0",
             "--extract-images",
             "--images-output", str(images_output)
         ]
@@ -697,7 +697,7 @@ class TestCrawlitCLI:
             # Check that each image has expected properties
             for img in data["images"]:
                 assert "src" in img
-                assert "alt" in img.get("attributes", {})
+                assert "alt" in img  # Alt attribute is directly in the image object, not in attributes
     
     def test_keyword_extraction(self, mock_website_with_keywords, tmp_path):
         """Test keyword extraction functionality via CLI"""
@@ -707,7 +707,7 @@ class TestCrawlitCLI:
         cmd = CRAWLIT_CLI + [
             "--url", mock_website_with_keywords,
             "--depth", "1",
-            "--user-agent", "crawlit/2.0",
+            "--user-agent", "custom-crawler/1.0",
             "--extract-keywords",
             "--keywords-output", str(keywords_output),
             "--max-keywords", "20",
@@ -749,10 +749,11 @@ class TestCrawlitCLI:
         keywords_output = tmp_path / "keywords.json"
         
         # Run CLI command with all extraction features
+        # Using crawlit/1.0 to verify all features work with any user agent
         cmd = CRAWLIT_CLI + [
             "--url", mock_website_with_tables,
             "--depth", "1",
-            "--user-agent", "crawlit/2.0",
+            "--user-agent", "crawlit/1.0",  # Previously would have failed with this user agent
             "--extract-tables",
             "--tables-output", str(tables_output),
             "--extract-images",

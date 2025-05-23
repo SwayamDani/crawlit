@@ -35,7 +35,7 @@ crawlit --url https://example.com \
 
 ## Data Extraction (v0.2.0+)
 
-Crawlit v0.2.0 introduces powerful data extraction features. These features require setting the user agent to "crawlit/2.0".
+Crawlit v0.2.0 introduces powerful data extraction features.
 
 ### Table Extraction
 
@@ -43,7 +43,7 @@ Extract HTML tables from crawled pages:
 
 ```bash
 crawlit --url https://example.com \
-        --user-agent "crawlit/2.0" \    # Required for extraction features
+        --user-agent "crawlit/2.0" \    # Recommended user agent
         --extract-tables \              # Enable table extraction
         --tables-output "./tables" \    # Directory for table output
         --tables-format csv \           # Output format (csv, json)
@@ -58,7 +58,7 @@ Extract images and related metadata from crawled pages:
 
 ```bash
 crawlit --url https://example.com \
-        --user-agent "crawlit/2.0" \    # Required for extraction features
+        --user-agent "crawlit/2.0" \    # Recommended user agent
         --extract-images \              # Enable image extraction
         --images-output "./images"      # Directory for image metadata
 ```
@@ -69,7 +69,7 @@ Extract keywords and key phrases from crawled pages:
 
 ```bash
 crawlit --url https://example.com \
-        --user-agent "crawlit/2.0" \    # Required for extraction features
+        --user-agent "crawlit/2.0" \    # Recommended user agent
         --extract-keywords \            # Enable keyword extraction
         --keywords-output keywords.json \ # Output file for keywords
         --max-keywords 30 \             # Maximum keywords per page

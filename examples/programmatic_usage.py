@@ -16,15 +16,11 @@ from datetime import datetime
 from pathlib import Path
 import requests
 
-# Add project root to path to make imports work when running this file directly
-sys.path.append(str(Path(__file__).parent.parent))
-
 # Import the crawler components
-from crawlit.crawler.engine import Crawler
-from crawlit.output.formatters import save_results, generate_summary_report
-from crawlit.extractors.tables import extract_tables, tables_to_csv, tables_to_dict, tables_to_json
-from crawlit.extractors.image_extractor import ImageTagParser
-from crawlit.extractors.keyword_extractor import KeywordExtractor
+from crawlit import Crawler, save_results, generate_summary_report
+from crawlit import extract_tables, tables_to_csv, tables_to_dict, tables_to_json
+from crawlit import ImageTagParser
+from crawlit import KeywordExtractor
 
 # Setup logging
 logging.basicConfig(

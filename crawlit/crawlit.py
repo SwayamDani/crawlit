@@ -145,51 +145,38 @@ def main():
         
         # Handle table extraction if enabled
         if args.extract_tables:
-            import os
+            # Table extraction feature
+            logger.info(f"Using table extraction feature...")
+            from crawlit.extractors.tables import extract_and_save_tables_from_crawl
             
-            # Check if user is using crawlit/2.0 user agent for table extraction
-            is_v2_user_agent = args.user_agent == "crawlit/2.0"
+            # Process all results and extract tables
+            stats = extract_and_save_tables_from_crawl(
+                results=results,
+                output_dir=args.tables_output,
+                output_format=args.tables_format,
+                min_rows=args.min_rows,
+                min_columns=args.min_columns,
+                max_depth=args.max_table_depth if args.max_table_depth is not None else args.depth
+            )
             
-            if not is_v2_user_agent:
-                # Table extraction is only available with crawlit/2.0
-                logger.warning("Table extraction is only available with --user-agent crawlit/2.0")
-                logger.warning("To extract tables, please use: --user-agent crawlit/2.0")
-                logger.warning("Continuing with standard crawl (no table extraction)")
+            # Log the results
+            if stats["total_tables_found"] > 0:
+                logger.info(f"Extracted {stats['total_tables_found']} tables from {stats['total_pages_with_tables']} pages, saved to {stats['total_files_saved']} files in {args.tables_output}/")
+                
+                # Log tables by depth
+                for depth, count in sorted(stats["tables_by_depth"].items()):
+                    logger.debug(f"Depth {depth}: {count} tables found")
             else:
-                # Table extraction feature - only available in crawlit/2.0
-                logger.info(f"Using table extraction feature (crawlit/2.0)...")
-                from crawlit.extractors.tables import extract_and_save_tables_from_crawl
-                
-                # Process all results and extract tables
-                stats = extract_and_save_tables_from_crawl(
-                    results=results,
-                    output_dir=args.tables_output,
-                    output_format=args.tables_format,
-                    min_rows=args.min_rows,
-                    min_columns=args.min_columns,
-                    max_depth=args.max_table_depth if args.max_table_depth is not None else args.depth
-                )
-                
-                # Log the results
-                if stats["total_tables_found"] > 0:
-                    logger.info(f"Extracted {stats['total_tables_found']} tables from {stats['total_pages_with_tables']} pages, saved to {stats['total_files_saved']} files in {args.tables_output}/")
-                    
-                    # Log tables by depth
-                    for depth, count in sorted(stats["tables_by_depth"].items()):
-                        logger.debug(f"Depth {depth}: {count} tables found")
-                else:
-                    logger.info("No tables found on any crawled pages.")
+                logger.info("No tables found on any crawled pages.")
         
         # Handle image extraction if enabled
         if args.extract_images:
-            # os and json already imported at the top level
-            
             # Process images from crawled pages
             logger.info(f"Processing images from crawled pages...")
             
             # Create output directory if it doesn't exist
             os.makedirs(args.images_output, exist_ok=True)
-             # Process results and extract images
+            # Process results and extract images
             total_images = 0
             pages_with_images = 0
             images_by_depth = {}
@@ -254,8 +241,8 @@ def main():
         logger.info(f"Results saved to {output_path}")
         
         # Handle keyword extraction if enabled
-        if args.extract_keywords and args.user_agent == "crawlit/2.0":
-            logger.info(f"[crawlit/2.0] Processing keywords from crawled pages...")
+        if args.extract_keywords:
+            logger.info(f"Processing keywords from crawled pages...")
             
             # Extract keywords from each page and compile them
             keywords_data = {

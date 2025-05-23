@@ -17,7 +17,7 @@ echo "==========================================================================
 echo
 
 # Run basic crawl with custom parameters
-python3 -m crawlit.crawlit --url "$TARGET_URL" \
+python3 -m crawlit --url "$TARGET_URL" \
         --depth 1 \
         --user-agent "MyCustomBot/2.0" \
         --delay 0.5 \
@@ -36,7 +36,7 @@ echo "==========================================================================
 echo
 
 # Run table extraction with custom parameters
-python3 -m crawlit.crawlit --url "$TARGET_URL" \
+python3 -m crawlit --url "$TARGET_URL" \
         --depth 1 \
         --user-agent "crawlit/2.0" \
         --extract-tables \
@@ -58,7 +58,7 @@ echo "==========================================================================
 echo
 
 # Run image extraction with custom parameters
-python3 -m crawlit.crawlit --url "$TARGET_URL" \
+python3 -m crawlit --url "$TARGET_URL" \
         --depth 1 \
         --user-agent "crawlit/2.0" \
         --extract-images \
@@ -77,7 +77,7 @@ echo "==========================================================================
 echo
 
 # Run keyword extraction with custom parameters
-python3 -m crawlit.crawlit --url "$TARGET_URL" \
+python3 -m crawlit --url "$TARGET_URL" \
         --depth 1 \
         --user-agent "crawlit/2.0" \
         --extract-keywords \

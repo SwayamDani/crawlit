@@ -19,7 +19,7 @@ ECHO ===========================================================================
 ECHO.
 
 REM Run basic crawl with custom parameters
-python -m crawlit.crawlit --url %TARGET_URL% ^
+python -m crawlit --url %TARGET_URL% ^
         --depth 1 ^
         --internal-only ^
         --user-agent "MyCustomBot/2.0" ^
@@ -39,7 +39,7 @@ ECHO ===========================================================================
 ECHO.
 
 REM Run table extraction with custom parameters
-python -m crawlit.crawlit --url %TARGET_URL% ^
+python -m crawlit --url %TARGET_URL% ^
         --depth 1 ^
         --user-agent "crawlit/2.0" ^
         --extract-tables ^
@@ -61,7 +61,7 @@ ECHO ===========================================================================
 ECHO.
 
 REM Run image extraction with custom parameters
-python -m crawlit.crawlit --url %TARGET_URL% ^
+python -m crawlit --url %TARGET_URL% ^
         --depth 1 ^
         --user-agent "crawlit/2.0" ^
         --extract-images ^
@@ -80,7 +80,7 @@ ECHO ===========================================================================
 ECHO.
 
 REM Run keyword extraction with custom parameters
-python -m crawlit.crawlit --url %TARGET_URL% ^
+python -m crawlit --url %TARGET_URL% ^
         --depth 1 ^
         --user-agent "crawlit/2.0" ^
         --extract-keywords ^

@@ -38,7 +38,7 @@ dependencies = [
 cli = []  # No extra dependencies needed for CLI, but keeps it optional
 
 [project.scripts]
-crawlit = "crawlit.crawlit:main"
+crawlit = "crawlit:cli_main"
 
 [tool.setuptools]
 packages = ["crawlit", "crawlit.crawler", "crawlit.output", "crawlit.extractors"]

@@ -19,14 +19,16 @@ from unittest import mock
 from contextlib import contextmanager
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 
-from crawlit.crawler.engine import Crawler
-from crawlit.output.formatters import save_results, generate_summary_report, save_as_json, save_as_csv, save_as_txt
+# Import main public functionality from top-level package
+from crawlit import (
+    Crawler, AsyncCrawler, save_results, generate_summary_report,
+    ImageTagParser, KeywordExtractor, extract_tables
+)
+# Import internal components still needed for testing
+from crawlit.output.formatters import save_as_json, save_as_csv, save_as_txt
 from crawlit.crawler.fetcher import fetch_page
 from crawlit.crawler.parser import extract_links, _process_url
 from crawlit.crawler.robots import RobotsHandler
-from crawlit.extractors.image_extractor import ImageTagParser
-from crawlit.extractors.keyword_extractor import KeywordExtractor
-from crawlit.extractors.tables import extract_tables
 
 
 class TestCrawlitLibrary:
