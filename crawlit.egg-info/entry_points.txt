@@ -1,2 +1,2 @@
 [console_scripts]
-crawlit = crawlit.crawlit:main
+crawlit = crawlit:cli_main

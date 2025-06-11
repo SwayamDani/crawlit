@@ -7,7 +7,7 @@
 export PYTHONPATH="$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")":$PYTHONPATH
 
 # Set the target URL
-TARGET_URL="https://swayamdani.com"
+TARGET_URL="https://www.engr.ucr.edu"
 
 # ========================================================================
 echo
@@ -18,13 +18,15 @@ echo
 
 # Run basic crawl with custom parameters
 python3 -m crawlit --url "$TARGET_URL" \
-        --depth 1 \
+        --depth 15 \
         --user-agent "MyCustomBot/2.0" \
         --delay 0.5 \
         --output basic_crawl_results.json \
         --output-format json \
         --pretty-json \
-        --summary
+        --summary \
+        --async
+
 
 echo "Results saved to basic_crawl_results.json"
 
@@ -37,7 +39,7 @@ echo
 
 # Run table extraction with custom parameters
 python3 -m crawlit --url "$TARGET_URL" \
-        --depth 1 \
+        --depth 15 \
         --user-agent "crawlit/2.0" \
         --extract-tables \
         --tables-output "table_output" \
@@ -46,7 +48,8 @@ python3 -m crawlit --url "$TARGET_URL" \
         --min-columns 2 \
         --output table_extraction_results.json \
         --output-format json \
-        --pretty-json
+        --pretty-json \
+        --async
 
 echo "Table extraction complete. Results saved to table_extraction_results.json"
 
@@ -59,13 +62,14 @@ echo
 
 # Run image extraction with custom parameters
 python3 -m crawlit --url "$TARGET_URL" \
-        --depth 1 \
+        --depth 15 \
         --user-agent "crawlit/2.0" \
         --extract-images \
         --images-output "image_output" \
         --output image_extraction_results.json \
         --output-format json \
-        --pretty-json
+        --pretty-json \
+        --async
 
 echo "Image extraction complete. Results saved to image_extraction_results.json"
 
@@ -78,7 +82,7 @@ echo
 
 # Run keyword extraction with custom parameters
 python3 -m crawlit --url "$TARGET_URL" \
-        --depth 1 \
+        --depth 15 \
         --user-agent "crawlit/2.0" \
         --extract-keywords \
         --keywords-output "keywords.json" \
@@ -86,7 +90,8 @@ python3 -m crawlit --url "$TARGET_URL" \
         --min-word-length 4 \
         --output keyword_extraction_results.json \
         --output-format json \
-        --pretty-json
+        --pretty-json \
+        --async
 
 echo "Keyword extraction complete. Results saved to keyword_extraction_results.json and keywords.json"
 

@@ -15,6 +15,7 @@ from .robots import RobotsHandler
 from ..extractors.image_extractor import ImageTagParser
 from ..extractors.keyword_extractor import KeywordExtractor
 from ..extractors.tables import extract_tables
+from ..extractors.content_extractor import ContentExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ class Crawler:
     def __init__(self, start_url, max_depth=3, internal_only=True, 
                  user_agent="crawlit/2.0", max_retries=3, timeout=10, delay=0.1,
                  respect_robots=True, enable_image_extraction=False, enable_keyword_extraction=False,
-                 enable_table_extraction=False):
+                 enable_table_extraction=False, same_path_only=False):
         """Initialize the crawler with given parameters.
         
         Args:
@@ -51,6 +52,7 @@ class Crawler:
             enable_image_extraction (bool, optional): Whether to enable image extraction. Defaults to False.
             enable_keyword_extraction (bool, optional): Whether to enable keyword extraction. Defaults to False.
             enable_table_extraction (bool, optional): Whether to enable table extraction. Defaults to False.
+            same_path_only (bool, optional): Whether to restrict crawling to URLs with the same path prefix as the start URL. Defaults to False.
         """
         self.start_url = start_url
         self.max_depth = max_depth
@@ -67,9 +69,17 @@ class Crawler:
         self.timeout = timeout
         self.delay = delay
         
-        # Extract domain from start URL for internal-only crawling
-        self.base_domain = self._extract_base_domain(start_url)
-        logger.info(f"Base domain extracted: {self.base_domain}")
+        # Extract domain and path information for URL filtering
+        parsed_url = urlparse(start_url)
+        self.base_domain = parsed_url.netloc
+        self.start_path = parsed_url.path
+        
+        # If the URL ends with a trailing slash, keep it for proper path matching
+        if not self.start_path.endswith('/') and self.start_path:
+            self.start_path += '/'
+        
+        # For domain-only URLs (like example.com or example.com/), we'll crawl the whole site
+        self.crawl_entire_domain = not self.start_path or self.start_path == '/'
         
         # Initialize robots.txt handler if needed
         self.robots_handler = RobotsHandler() if respect_robots else None
@@ -82,6 +92,10 @@ class Crawler:
         self.image_extraction_enabled = enable_image_extraction
         self.keyword_extraction_enabled = enable_keyword_extraction
         self.table_extraction_enabled = enable_table_extraction
+        
+        # Always enable content extraction for metadata, headings, etc.
+        self.content_extractor = ContentExtractor()
+        logger.info("Content extraction enabled")
         
         if self.image_extraction_enabled:
             self.image_extractor = ImageTagParser()
@@ -101,6 +115,16 @@ class Crawler:
             logger.info("Table extraction enabled")
         else:
             logger.info("Table extraction disabled")
+        
+        # New attribute for same_path_only
+        self.same_path_only = same_path_only
+        
+        logger.info(f"Base domain extracted: {self.base_domain}")
+        if self.same_path_only:
+            if self.crawl_entire_domain:
+                logger.info(f"Crawling entire domain: {self.base_domain}")
+            else:
+                logger.info(f"Restricting crawl to path: {self.start_path}")
 
     def _extract_base_domain(self, url):
         """Extract the base domain from a URL"""
@@ -186,18 +210,24 @@ class Crawler:
                     content_type = response.headers.get('Content-Type', '')
                     if 'text/html' in content_type:
                         # Store HTML content for extraction features (like tables)
-                        # response.text is a direct attribute in requests.Response
                         self.results[current_url]['html_content'] = response.text
                         
-                        # Extract canonical URL if present
-                        canonical_pattern = r'<link\s+[^>]*rel=[\'"]canonical[\'"][^>]*href=[\'"]([^\'"]+)[\'"][^>]*>'
-                        canonical_match = re.search(canonical_pattern, response.text, re.IGNORECASE)
-                        if canonical_match:
-                            canonical_url = canonical_match.group(1).strip()
-                            # Convert to absolute URL if it's relative
-                            canonical_url = urljoin(current_url, canonical_url)
-                            self.results[current_url]['canonical_url'] = canonical_url
-                            logger.debug(f"Canonical URL for {current_url}: {canonical_url}")
+                        # Use ContentExtractor to extract all page metadata
+                        content_data = self.content_extractor.extract_content(response.text, current_url, response)
+                        
+                        # Merge content extractor results with page results
+                        self.results[current_url].update({
+                            'title': content_data.get('title'),
+                            'meta_description': content_data.get('meta_description'),
+                            'meta_keywords': content_data.get('meta_keywords'),
+                            'canonical_url': content_data.get('canonical_url'),
+                            'language': content_data.get('language'),
+                            'headings': content_data.get('headings'),
+                            'images_with_context': content_data.get('images_with_context'),
+                            'page_type': content_data.get('page_type'),
+                            'last_modified': content_data.get('last_modified')
+                        })
+                        logger.debug(f"Extracted metadata for {current_url}")
                         
                         # Extract links from HTML content
                         links = extract_links(response.text, current_url, self.delay)
@@ -269,38 +299,31 @@ class Crawler:
         if url in self.visited_urls:
             logger.debug(f"Skipping already visited URL: {url}")
             return False
-            
+        
         # Check if URL is internal when internal_only is True
         if self.internal_only:
             parsed_url = urlparse(url)
-            url_domain = parsed_url.netloc
-            base_domain = self.base_domain
             
-            # For test environments like localhost, consider port as part of domain comparison
-            # but only if both URLs have the same base domain
-            base_domain_parts = base_domain.split(':')[0]
-            url_domain_parts = url_domain.split(':')[0]
-            
-            logger.debug(f"Checking if {url_domain} matches base domain {base_domain}")
-            
-            # If the domain doesn't match but it's localhost or 127.0.0.1, consider same domain
-            # This helps with test environments
-            is_same_domain = (url_domain == base_domain or 
-                             (url_domain_parts == base_domain_parts and 
-                              (base_domain_parts == 'localhost' or base_domain_parts == '127.0.0.1')))
-            
-            if not is_same_domain:
-                # Add to skipped external URLs set for logging
+            # First check if the domain matches
+            if parsed_url.netloc != self.base_domain:
                 self.skipped_external_urls.add(url)
-                logger.debug(f"Skipping external URL: {url} (not in {self.base_domain})")
+                logger.debug(f"Skipping external URL: {url} (external domain)")
                 return False
+            
+            # If same_path_only is True, check path restriction
+            if self.same_path_only and not self.crawl_entire_domain:
+                # For path-specific crawling, ensure the URL path starts with the start_path
+                if not parsed_url.path.startswith(self.start_path):
+                    self.skipped_external_urls.add(url)
+                    logger.debug(f"Skipping external URL: {url} (not under {self.start_path})")
+                    return False
         
         # Check robots.txt rules if enabled
         if self.respect_robots and self.robots_handler:
             if not self.robots_handler.can_fetch(url, self.user_agent):
                 logger.debug(f"Skipping URL disallowed by robots.txt: {url}")
                 return False
-                
+        
         return True
         
     def get_results(self):
@@ -316,3 +339,65 @@ class Crawler:
         if self.robots_handler:
             return self.robots_handler.get_skipped_paths()
         return []
+    
+    def is_valid_url(self, url):
+        """Check if the URL should be crawled based on crawler settings"""
+        # Check if URL is already processed or queued
+        if url in self.visited_urls or url in self.queue:
+            return False
+
+        # Parse the URL to extract domain and path
+        parsed_url = urlparse(url)
+        
+        # If URL is not in the base domain and internal_only is True, skip it
+        if self.internal_only and parsed_url.netloc != self.base_domain:
+            return False
+
+        # If same_path_only is True and we're not crawling the entire domain,
+        # ensure the URL path starts with the start_path
+        if self.same_path_only and not self.crawl_entire_domain:
+            if not parsed_url.path.startswith(self.start_path):
+                logger.debug(f"Skipping URL: {url} (not under path {self.start_path})")
+                self.skipped_external_urls.add(url)
+                return False
+
+        return True
+
+    def _extract_links(self, url, soup):
+        """Extract all links from the page"""
+        links = []
+        for link in soup.find_all('a', href=True):
+            href = link['href'].strip()
+            
+            # Handle relative URLs
+            if href.startswith('/'):
+                # Convert relative URL to absolute
+                href = f"http://{self.base_domain}{href}"
+            elif not (href.startswith('http://') or href.startswith('https://')):
+                # Handle URLs without protocol and domain
+                href = urljoin(url, href)
+            
+            # Skip non-http(s) URLs
+            if not (href.startswith('http://') or href.startswith('https://')):
+                continue
+            
+            # Parse the URL to check domain and path
+            parsed_href = urlparse(href)
+            
+            # Skip if not in same domain when internal_only is True
+            if self.internal_only and parsed_href.netloc != self.base_domain:
+                self.skipped_external_urls.add(href)
+                logger.debug(f"Skipping external URL: {href} (external domain)")
+                continue
+            
+            # If same_path_only is True and we're not crawling the entire domain,
+            # check path restriction
+            if self.same_path_only and not self.crawl_entire_domain:
+                if not parsed_href.path.startswith(self.start_path):
+                    self.skipped_external_urls.add(href)
+                    logger.debug(f"Skipping path-external URL: {href} (not under {self.start_path})")
+                    continue
+            
+            links.append(href)
+        
+        return links

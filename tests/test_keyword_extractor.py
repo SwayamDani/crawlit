@@ -477,3 +477,27 @@ class TestKeywordExtractor:
             assert len(parsed["keywords"]) == len(parsed["scores"])
         except Exception as e:
             pytest.fail(f"JSON serialization failed: {str(e)}")
+    
+    def test_footer_content_ignored(self):
+        """Test that content inside <footer> is ignored for keyword extraction"""
+        html_with_footer = """
+        <html>
+            <body>
+                <h1>Main Content</h1>
+                <p>This is the main body of the page.</p>
+                <footer>
+                    <p>Footer should not be included as keyword.</p>
+                    <p>Copyright 2025 Footer Company</p>
+                </footer>
+            </body>
+        </html>
+        """
+        extractor = KeywordExtractor()
+        result = extractor.extract_keywords(html_with_footer)
+        # Footer words should not appear
+        for word in ["footer", "copyright", "company", "included"]:
+            assert word not in result["keywords"], f"Footer word '{word}' should not be in keywords: {result['keywords']}"
+        # Main content words should appear
+        assert "main" in result["keywords"]
+        assert "content" in result["keywords"]
+        assert "body" in result["keywords"]

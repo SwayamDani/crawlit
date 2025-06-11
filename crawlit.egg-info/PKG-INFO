@@ -183,13 +183,13 @@ crawlit --url https://example.com \
 | `--allow-external`, `-e` | Allow crawling URLs outside initial domain | False |
 | `--summary`, `-s` | Show a summary of crawl results | False |
 | `--verbose`, `-v` | Verbose output | False |
-| `--extract-keywords`, `-k` | Extract keywords from crawled pages (requires crawlit/2.0) | False |
+| `--extract-keywords`, `-k` | Extract keywords from crawled pages | False |
 | `--keywords-output` | File to save extracted keywords | keywords.json |
 | `--max-keywords` | Maximum number of keywords to extract per page | 20 |
 | `--min-word-length` | Minimum length of words to consider as keywords | 3 |
-| `--extract-images`, `-img` | Extract images from crawled pages (requires crawlit/2.0) | False |
+| `--extract-images`, `-img` | Extract images from crawled pages | False |
 | `--images-output` | Directory to save extracted images data | image_output/ |
-| `--extract-tables`, `-t` | Extract tables from crawled pages (requires crawlit/2.0) | False |
+| `--extract-tables`, `-t` | Extract tables from crawled pages | False |
 | `--tables-output` | Directory to save extracted tables | table_output/ |
 | `--tables-format` | Format to save extracted tables (csv or json) | csv |
 | `--min-rows` | Minimum number of rows for a table to be extracted | 1 |

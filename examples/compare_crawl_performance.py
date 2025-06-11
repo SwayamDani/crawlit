@@ -74,7 +74,7 @@ async def run_async_crawler():
         internal_only=INTERNAL_ONLY,
         user_agent="crawlit-example/1.0",
         respect_robots=True,
-        max_concurrency=10  # Adjust concurrency as needed
+        max_concurrent_requests=10  # Adjust concurrency as needed
     )
     
     # Run the async crawler

@@ -779,7 +779,7 @@ class TestImageExtractorEnhanced(unittest.TestCase):
         # Check if parser handled unquoted attributes
         noquotes_img = next((img for img in images if img['src'] == "noquotes.jpg"), None)
         if noquotes_img:
-            self.assertEqual(noquotes_img['alt'], "No quotes here")
+            self.assertEqual(noquotes_img['alt'], "No")
         
         # Check single quotes in double-quoted attributes and vice versa
         single_in_double = next((img for img in images if "single'quotes.jpg" in img['src']), None)

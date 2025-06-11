@@ -6,10 +6,11 @@ Extracts HTML tables without external dependencies.
 import re
 import html
 from typing import List, Dict, Any, Union, Optional, Tuple
+from bs4 import BeautifulSoup
 
 def clean_cell_content(content: str) -> str:
     """
-    Enhanced cleaning function for table cell content.
+    Enhanced cleaning function for table cell content using BeautifulSoup.
     
     Args:
         content: Raw cell content with possible HTML tags
@@ -17,11 +18,9 @@ def clean_cell_content(content: str) -> str:
     Returns:
         Cleaned text content
     """
-    # Basic HTML tag removal 
-    clean_content = re.sub(r'<[^>]+>', '', content)
-    
-    # Handle HTML entities with the html module
-    clean_content = html.unescape(clean_content)
+    # Use BeautifulSoup to handle HTML tags properly
+    soup = BeautifulSoup(content, 'html.parser')
+    clean_content = soup.get_text()
     
     # Additional cleanup for numeric brackets from Wikipedia references
     clean_content = re.sub(r'\[\d+\]', '', clean_content)
@@ -36,13 +35,7 @@ def clean_cell_content(content: str) -> str:
 
 def extract_tables(html_content: str, min_rows: int = 1, min_columns: int = 1) -> List[List[List[str]]]:
     """
-    Extract all tables from HTML content with advanced features.
-    
-    Features include:
-    - Proper handling of thead and tbody sections
-    - Support for rowspan and colspan attributes
-    - Consistent column count across all rows
-    - Clean cell content extraction
+    Extract all tables from HTML content using BeautifulSoup for robust parsing.
     
     Args:
         html_content: The HTML content to parse
@@ -54,23 +47,36 @@ def extract_tables(html_content: str, min_rows: int = 1, min_columns: int = 1) -
         and each row is a list of cell values with proper handling of merged cells
     """
     tables = []
+    soup = BeautifulSoup(html_content, 'html.parser')
     
-    # First find all table tags
-    table_pattern = r'<table[^>]*>(.*?)</table>'
-    table_tags = re.finditer(table_pattern, html_content, re.DOTALL)
+    # Find only top-level tables (not nested inside other tables)
+    all_tables = soup.find_all('table')
+    top_level_tables = []
     
-    for table_match in table_tags:
-        table_content = table_match.group(1)
+    for table in all_tables:
+        # Check if this table is nested inside another table
+        is_nested = False
+        parent = table.parent
+        while parent:
+            if parent.name == 'table':
+                is_nested = True
+                break
+            parent = parent.parent
         
-        # Step 1: Extract table structure with cell spans
-        raw_table_data = _extract_raw_table_structure(table_content)
+        if not is_nested:
+            top_level_tables.append(table)
+    
+    for table in top_level_tables:
+        # Extract the raw table structure including rowspan/colspan information
+        raw_table_data = _extract_raw_table_structure(str(table))
         
-        # Step 2: Process table to handle rowspan and colspan
+        # Process the rowspan and colspan attributes to get the final table
         processed_table = _process_table_spans(raw_table_data)
         
-        if processed_table and len(processed_table) >= min_rows and any(len(row) >= min_columns for row in processed_table):
+        # Add the table if it meets the minimum size requirements
+        if processed_table and len(processed_table) >= min_rows and any(len(r) >= min_columns for r in processed_table):
             tables.append(processed_table)
-    
+            
     return tables
 
 def filter_tables(tables: List[List[List[str]]], min_rows: int = 2, min_cols: int = 2) -> List[List[List[str]]]:
@@ -97,7 +103,7 @@ def filter_tables(tables: List[List[List[str]]], min_rows: int = 2, min_cols: in
 
 def _extract_raw_table_structure(table_content: str) -> List[List[Dict[str, Any]]]:
     """
-    Extract raw table structure including rowspan and colspan attributes.
+    Extract raw table structure including rowspan and colspan attributes using BeautifulSoup.
     
     Args:
         table_content: HTML content inside <table> tags
@@ -108,67 +114,47 @@ def _extract_raw_table_structure(table_content: str) -> List[List[Dict[str, Any]
     """
     raw_rows = []
     
-    # Handle both thead and tbody sections
-    sections = []
+    # Create a BeautifulSoup object from the table content
+    soup = BeautifulSoup(table_content, 'html.parser')
     
-    # Try to find thead section
-    thead_pattern = r'<thead[^>]*>(.*?)</thead>'
-    thead_match = re.search(thead_pattern, table_content, re.DOTALL)
-    if thead_match:
-        sections.append(thead_match.group(1))
-    
-    # Try to find tbody section(s)
-    tbody_pattern = r'<tbody[^>]*>(.*?)</tbody>'
-    tbody_matches = re.finditer(tbody_pattern, table_content, re.DOTALL)
-    for tbody_match in tbody_matches:
-        sections.append(tbody_match.group(1))
-    
-    # If no sections found, use the whole table content
-    if not sections:
-        sections.append(table_content)
-    
-    # Process all sections
-    for section_content in sections:
-        # Extract rows
-        row_pattern = r'<tr[^>]*>(.*?)</tr>'
-        row_matches = re.finditer(row_pattern, section_content, re.DOTALL)
+    # Process all rows from the table, whether in thead or tbody
+    # If there's no explicit thead or tbody, BeautifulSoup will find tr elements directly
+    for row in soup.find_all('tr'):
+        cells = []
         
-        for row_match in row_matches:
-            row_content = row_match.group(1)
-            cells = []
+        # Process each cell (th or td)
+        for cell in row.find_all(['td', 'th']):
+            # Get cell type
+            cell_type = cell.name
             
-            # Extract cells with their attributes
-            cell_pattern = r'<t([dh])([^>]*)>(.*?)</t[dh]>'
-            cell_matches = re.finditer(cell_pattern, row_content, re.DOTALL)
+            # Extract rowspan and colspan attributes
+            rowspan = 1
+            if cell.has_attr('rowspan'):
+                try:
+                    rowspan = int(cell['rowspan'])
+                except (ValueError, TypeError):
+                    pass  # Keep default value if conversion fails
             
-            for cell_match in cell_matches:
-                cell_type = cell_match.group(1)  # 'd' or 'h'
-                attrs = cell_match.group(2)
-                content = cell_match.group(3)
-                
-                # Extract rowspan and colspan
-                rowspan = 1
-                colspan = 1
-                
-                rowspan_match = re.search(r'rowspan\s*=\s*["\']?(\d+)["\']?', attrs)
-                if rowspan_match:
-                    rowspan = int(rowspan_match.group(1))
-                    
-                colspan_match = re.search(r'colspan\s*=\s*["\']?(\d+)["\']?', attrs)
-                if colspan_match:
-                    colspan = int(colspan_match.group(1))
-                
-                # Clean the content
-                clean_content = clean_cell_content(content)
-                
-                # Store cell with its span information
-                cells.append({
-                    'content': clean_content,
-                    'rowspan': rowspan,
-                    'colspan': colspan,
-                    'is_header': cell_type == 'h'
-                })
+            colspan = 1
+            if cell.has_attr('colspan'):
+                try:
+                    colspan = int(cell['colspan'])
+                except (ValueError, TypeError):
+                    pass  # Keep default value if conversion fails
             
+            # Clean the content
+            clean_content = clean_cell_content(str(cell.decode_contents()))
+            
+            # Store cell with its span information
+            cells.append({
+                'content': clean_content,
+                'rowspan': rowspan,
+                'colspan': colspan,
+                'is_header': cell_type == 'th'
+            })
+        
+        # Add row if it has cells
+        if cells:
             raw_rows.append(cells)
     
     return raw_rows
@@ -298,8 +284,11 @@ def tables_to_dict(tables: List[List[List[str]]]) -> List[List[Dict[str, str]]]:
         # Clean and normalize header keys
         clean_headers = []
         for header in headers:
-            # Remove any remaining special characters from the header
-            clean_header = re.sub(r'[^\w\s]', '', header)
+            # Clean the header using BeautifulSoup
+            soup = BeautifulSoup(f"<span>{header}</span>", 'html.parser')
+            clean_header = soup.get_text()
+            # Remove any remaining special characters
+            clean_header = re.sub(r'[^\w\s]', '', clean_header)
             # Normalize whitespace
             clean_header = re.sub(r'\s+', '_', clean_header.strip().lower())
             if not clean_header:

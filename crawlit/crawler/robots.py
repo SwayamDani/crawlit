@@ -8,6 +8,9 @@ import urllib.parse
 import urllib.request
 import urllib.error
 from urllib.robotparser import RobotFileParser
+import aiohttp
+import asyncio
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +169,158 @@ class RobotsHandler:
         
     def get_skipped_paths(self):
         """Get list of URLs skipped due to robots.txt rules"""
+        return self.skipped_paths
+
+class AsyncRobotsHandler:
+    """Asynchronous handler for robots.txt files.
+    
+    This class is responsible for fetching, parsing and checking robots.txt
+    rules using async/await patterns.
+    """
+    
+    def __init__(self):
+        """Initialize the AsyncRobotsHandler."""
+        self.parsers = {}  # Dictionary to cache robots.txt parsers by domain
+        self.last_fetch_time = {}  # Track when we last fetched a robots.txt file
+        self.cache_expiry = 3600  # Cache robots.txt for 1 hour by default
+        self.skipped_paths = []  # Track paths skipped due to robots.txt rules
+    
+    async def can_fetch(self, url: str, user_agent: str) -> bool:
+        """
+        Check if a URL can be fetched according to robots.txt rules.
+        
+        Args:
+            url: URL to check
+            user_agent: User agent string to use for checking permissions
+            
+        Returns:
+            bool: True if URL can be fetched, False otherwise
+        """
+        try:
+            parsed_url = urllib.parse.urlparse(url)
+            domain = f"{parsed_url.scheme}://{parsed_url.netloc}"
+            path = parsed_url.path
+            if not path:
+                path = '/'
+                
+            # Add query parameters if present
+            if parsed_url.query:
+                path = f"{path}?{parsed_url.query}"
+            
+            # Check if we need to fetch/update the robots.txt
+            if domain not in self.parsers or self._is_cache_expired(domain):
+                await self._fetch_robots_txt(domain, user_agent)
+            
+            # If we have a parser for this domain, check if we can fetch the URL
+            if domain in self.parsers:
+                parser = self.parsers[domain]
+                can_fetch = parser.can_fetch(user_agent, url)
+                if not can_fetch:
+                    # Add URL to skipped paths if disallowed by robots.txt
+                    logger.info(f"Skipping {url} (disallowed by robots.txt)")
+                    self.skipped_paths.append(url)
+                return can_fetch
+            
+            # If we couldn't get a parser, we assume it's allowed
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error checking robots.txt for {url}: {str(e)}")
+            # On error, we default to allowing the URL
+            return True
+    
+    async def _fetch_robots_txt(self, domain: str, user_agent: str) -> None:
+        """
+        Fetch and parse the robots.txt file for a domain.
+        
+        Args:
+            domain: Base domain URL (e.g., "https://example.com")
+            user_agent: User agent string to use when fetching
+        """
+        robots_url = f"{domain}/robots.txt"
+        logger.debug(f"Fetching robots.txt from {robots_url}")
+        
+        try:
+            headers = {"User-Agent": user_agent}
+            async with aiohttp.ClientSession() as session:
+                async with session.get(robots_url, headers=headers, timeout=10) as response:
+                    if response.status == 200:
+                        robots_txt = await response.text()
+                        
+                        # Create a parser and feed it the robots.txt content
+                        parser = RobotFileParser()
+                        parser.set_url(robots_url)
+                        parser.parse(robots_txt.splitlines())
+                        
+                        # Cache the parser
+                        self.parsers[domain] = parser
+                        self.last_fetch_time[domain] = time.time()
+                        
+                    elif response.status == 404:
+                        # No robots.txt found, create an "allow all" parser
+                        parser = RobotFileParser()
+                        parser.set_url(robots_url)
+                        parser.parse(["User-agent: *", "Allow: /"])
+                        
+                        # Cache the parser
+                        self.parsers[domain] = parser
+                        self.last_fetch_time[domain] = time.time()
+                        
+                    else:
+                        logger.warning(f"Failed to fetch robots.txt from {robots_url} (HTTP {response.status})")
+                        # For other errors, we'll create a permissive parser
+                        parser = RobotFileParser()
+                        parser.set_url(robots_url)
+                        parser.parse(["User-agent: *", "Allow: /"])
+                        self.parsers[domain] = parser
+                        self.last_fetch_time[domain] = time.time()
+        
+        except asyncio.TimeoutError:
+            logger.warning(f"Timeout fetching robots.txt from {robots_url}")
+            # Create a permissive parser on timeout
+            parser = RobotFileParser()
+            parser.set_url(robots_url)
+            parser.parse(["User-agent: *", "Allow: /"])
+            self.parsers[domain] = parser
+            self.last_fetch_time[domain] = time.time()
+            
+        except Exception as e:
+            logger.error(f"Error fetching robots.txt from {robots_url}: {str(e)}")
+            # Create a permissive parser on error
+            parser = RobotFileParser()
+            parser.set_url(robots_url)
+            parser.parse(["User-agent: *", "Allow: /"])
+            self.parsers[domain] = parser
+            self.last_fetch_time[domain] = time.time()
+    
+    def _is_cache_expired(self, domain: str) -> bool:
+        """
+        Check if the cached robots.txt for a domain has expired.
+        
+        Args:
+            domain: Domain to check
+            
+        Returns:
+            bool: True if cache has expired or doesn't exist, False otherwise
+        """
+        if domain not in self.last_fetch_time:
+            return True
+        
+        elapsed = time.time() - self.last_fetch_time[domain]
+        return elapsed > self.cache_expiry
+    
+    def clear_cache(self) -> None:
+        """Clear the robots.txt parser cache."""
+        self.parsers.clear()
+        self.last_fetch_time.clear()
+    
+    async def get_skipped_paths(self) -> list:
+        """
+        Get list of URLs skipped due to robots.txt rules.
+        
+        Returns:
+            list: URLs that were skipped due to robots.txt disallow rules
+        """
         return self.skipped_paths
 
 # Add RobotsTxt class for backward compatibility with tests

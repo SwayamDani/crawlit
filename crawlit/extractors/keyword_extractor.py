@@ -8,6 +8,7 @@ import logging
 import string
 from collections import Counter
 from typing import Dict, List, Optional
+from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
@@ -60,60 +61,58 @@ class KeywordExtractor:
         Returns:
             Extracted text with HTML tags and scripts removed
         """
-        # Remove script and style content
-        no_script_html = re.sub(r'<script.*?>.*?</script>', ' ', html_content, flags=re.DOTALL)
-        no_style_html = re.sub(r'<style.*?>.*?</style>', ' ', no_script_html, flags=re.DOTALL)
+        # Parse HTML with BeautifulSoup
+        soup = BeautifulSoup(html_content, 'html.parser')
         
-        # Extract text content from specific meaningful tags using more lenient patterns
-        # that can handle unclosed tags better
-        title_text = re.findall(r'<title[^>]*>(.*?)</title>', no_style_html, re.DOTALL) or \
-                    re.findall(r'<title[^>]*>(.*)', no_style_html, re.DOTALL)  # Fallback for unclosed tags
-        
-        h1_text = re.findall(r'<h1[^>]*>(.*?)</h1>', no_style_html, re.DOTALL|re.IGNORECASE) or \
-                 re.findall(r'<h1[^>]*>(.*?)(?=<|\Z)', no_style_html, re.DOTALL|re.IGNORECASE)  # Fallback
-        
-        h2_text = re.findall(r'<h2[^>]*>(.*?)</h2>', no_style_html, re.DOTALL|re.IGNORECASE) or \
-                 re.findall(r'<h2[^>]*>(.*?)(?=<|\Z)', no_style_html, re.DOTALL|re.IGNORECASE)  # Fallback
-        
-        h3_text = re.findall(r'<h3[^>]*>(.*?)</h3>', no_style_html, re.DOTALL|re.IGNORECASE) or \
-                 re.findall(r'<h3[^>]*>(.*?)(?=<|\Z)', no_style_html, re.DOTALL|re.IGNORECASE)  # Fallback
-        
-        p_text = re.findall(r'<p[^>]*>(.*?)</p>', no_style_html, re.DOTALL|re.IGNORECASE) or \
-                re.findall(r'<p[^>]*>(.*?)(?=<p|<div|<h|</body>|\Z)', no_style_html, re.DOTALL|re.IGNORECASE)  # Fallback
-        
-        # If all specific tag extraction failed, try a more aggressive approach
-        if not any([title_text, h1_text, h2_text, h3_text, p_text]):
-            logger.debug("Specific tag extraction failed, trying fallback content extraction")
-            # Extract text between any tags
-            body_content = re.search(r'<body[^>]*>(.*?)</body>', no_style_html, re.DOTALL|re.IGNORECASE)
-            if body_content:
-                # Just strip all HTML tags and use whatever text remains
-                clean_body = re.sub(r'<[^>]*>', ' ', body_content.group(1))
-                p_text = [clean_body]
+        # Remove unwanted elements
+        for element in soup.find_all(['script', 'style', 'footer', 'nav']):
+            element.decompose()
         
         # Build text with priority weighting
         extracted_text = []
-        if title_text:
-            extracted_text.extend([t.strip() for t in title_text] * 3)  # Title has higher weight
-        if h1_text:
-            extracted_text.extend([t.strip() for t in h1_text] * 2)     # H1 has higher weight
-        if h2_text:
-            extracted_text.extend([t.strip() for t in h2_text])
-        if h3_text:
-            extracted_text.extend([t.strip() for t in h3_text])
-        if p_text:
-            extracted_text.extend([t.strip() for t in p_text])
-            
-        # Clean text by removing HTML tags and extra whitespace
-        text = ' '.join(extracted_text)
-        clean_text = re.sub(r'<.*?>', ' ', text)  # Remove any remaining HTML tags
-        clean_text = re.sub(r'\s+', ' ', clean_text).strip()  # Normalize whitespace
         
-        # Final fallback: if nothing was extracted, just strip all HTML tags from the original content
-        if not clean_text:
-            logger.debug("All extraction methods failed, using raw content with tags stripped")
-            clean_text = re.sub(r'<[^>]*>', ' ', no_style_html)
-            clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+        # Extract title text (with higher weight)
+        title_element = soup.find('title')
+        if title_element and title_element.text.strip():
+            extracted_text.extend([title_element.text.strip()] * 3)  # Title has higher weight
+        
+        # Extract h1 text (with higher weight)
+        h1_elements = soup.find_all('h1')
+        if h1_elements:
+            h1_texts = [h1.get_text().strip() for h1 in h1_elements if h1.get_text().strip()]
+            extracted_text.extend(h1_texts * 2)  # H1 has higher weight
+        
+        # Extract h2 text
+        h2_elements = soup.find_all('h2')
+        if h2_elements:
+            h2_texts = [h2.get_text().strip() for h2 in h2_elements if h2.get_text().strip()]
+            extracted_text.extend(h2_texts)
+        
+        # Extract h3 text
+        h3_elements = soup.find_all('h3')
+        if h3_elements:
+            h3_texts = [h3.get_text().strip() for h3 in h3_elements if h3.get_text().strip()]
+            extracted_text.extend(h3_texts)
+        
+        # Extract paragraph text
+        p_elements = soup.find_all('p')
+        if p_elements:
+            p_texts = [p.get_text().strip() for p in p_elements if p.get_text().strip()]
+            extracted_text.extend(p_texts)
+        
+        # If specific tag extraction failed, try a more aggressive approach
+        if not extracted_text:
+            logger.debug("Specific tag extraction failed, trying fallback content extraction")
+            body_element = soup.find('body')
+            if body_element:
+                extracted_text = [body_element.get_text().strip()]
+            else:
+                # Final fallback: get all text from the document
+                extracted_text = [soup.get_text().strip()]
+        
+        # Join all extracted text and normalize whitespace
+        text = ' '.join(extracted_text)
+        clean_text = re.sub(r'\s+', ' ', text).strip()  # Normalize whitespace
         
         return clean_text
     
@@ -199,7 +198,7 @@ class KeywordExtractor:
         Returns:
             List of extracted keyphrases
         """
-        # Extract text from HTML
+        # Extract text from HTML using BeautifulSoup (via extract_text_from_html)
         text = self.extract_text_from_html(html_content)
         
         # Skip keyphrase extraction for very minimal content (less than 10 words)

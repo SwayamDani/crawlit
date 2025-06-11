@@ -242,3 +242,87 @@ class ResponseLike:
             import json
             return json.loads(self._text)
         return None
+
+
+async def async_fetch_page(url: str, user_agent: str, max_retries: int = 3, timeout: int = 30) -> Tuple[bool, Optional[str], int]:
+    """
+    Asynchronously fetch a web page with retry functionality.
+    
+    Args:
+        url: The URL to fetch
+        user_agent: User-agent string to use in request headers
+        max_retries: Maximum number of retry attempts for failed requests
+        timeout: Request timeout in seconds
+    
+    Returns:
+        Tuple containing:
+        - Success flag (bool): True if the request was successful
+        - Response content (str or None): HTML content if successful, None otherwise
+        - Status code (int): HTTP status code or 0 for request errors
+    """
+    headers = {
+        'User-Agent': user_agent,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+    }
+    
+    attempt = 0
+    
+    # Configure client timeout
+    timeout_obj = aiohttp.ClientTimeout(total=timeout)
+    
+    while attempt <= max_retries:
+        if attempt > 0:
+            logger.debug(f"Retry attempt {attempt} for URL: {url}")
+            # Exponential backoff between retries
+            await asyncio.sleep(2 ** attempt)
+        
+        attempt += 1
+        
+        try:
+            async with aiohttp.ClientSession(timeout=timeout_obj) as session:
+                async with session.get(url, headers=headers, allow_redirects=True) as response:
+                    status = response.status
+                    
+                    # Check if we got a successful response
+                    if response.ok:
+                        content_type = response.headers.get('Content-Type', '')
+                        if 'text/html' in content_type or 'application/xhtml+xml' in content_type:
+                            try:
+                                html_content = await response.text()
+                                return True, html_content, status
+                            except Exception as e:
+                                logger.error(f"Failed to decode content from {url}: {str(e)}")
+                                return False, None, status
+                        else:
+                            logger.debug(f"URL {url} returned non-HTML content: {content_type}")
+                            return False, None, status
+                    else:
+                        logger.debug(f"URL {url} returned status code: {status}")
+                        if status >= 400 and status < 500 and status != 429:
+                            # Client errors except for 429 (Too Many Requests) shouldn't be retried
+                            return False, None, status
+                        elif attempt > max_retries:
+                            return False, None, status
+                        
+                        # Otherwise we'll retry for server errors (5xx) and 429
+                        continue
+                        
+        except asyncio.TimeoutError:
+            logger.warning(f"Request to {url} timed out after {timeout} seconds")
+            if attempt > max_retries:
+                return False, None, 0
+        except aiohttp.ClientError as e:
+            logger.error(f"Error fetching {url}: {str(e)}")
+            if attempt > max_retries:
+                return False, None, 0
+        except Exception as e:
+            logger.exception(f"Unexpected error while fetching {url}: {str(e)}")
+            if attempt > max_retries:
+                return False, None, 0
+    
+    # If we've exhausted all retries and still no success
+    return False, None, 0

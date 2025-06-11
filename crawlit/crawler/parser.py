@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
 """
-parser.py - HTML parsing and link extraction
+parser.py - HTML parsing and link extraction using BeautifulSoup
 """
 
-import time
-import re
-from urllib.parse import urlparse, urljoin
 import logging
+from urllib.parse import urlparse, urljoin
+from bs4 import BeautifulSoup
+
+logger = logging.getLogger(__name__)
 
 def extract_links(html_content, base_url, delay=0.1):
     """
-    Extract links from HTML content from various elements
+    Extract links from HTML content from various elements using BeautifulSoup
     
     Args:
         html_content: The HTML content to parse
         base_url: The base URL for resolving relative links
-        delay: Delay in seconds to be polite to the server
+        delay: Delay in seconds to be polite to the server (not used here)
         
     Returns:
         list: List of absolute URLs found in the HTML
@@ -30,7 +31,6 @@ def extract_links(html_content, base_url, delay=0.1):
             html_content = html_content.decode('utf-8')
         except UnicodeDecodeError:
             html_content = html_content.decode('latin-1')
-    
     
     links = set()  # Using a set to avoid duplicates
     
@@ -47,22 +47,22 @@ def extract_links(html_content, base_url, delay=0.1):
         'form': 'action'
     }
     
-    # Extract links from each element type using regex patterns
-    for tag_name, attr_name in elements_to_extract.items():
-        # Pattern to find tags with the desired attribute
-        # Example: <a href="http://example.com"> or <img src="/images/pic.jpg">
-        pattern = r'<{0}\s+[^>]*{1}=[\'"]([^\'"]+)[\'"][^>]*>'.format(tag_name, attr_name)
+    # Parse the HTML with BeautifulSoup
+    try:
+        soup = BeautifulSoup(html_content, 'html.parser')
         
-        # Find all matches
-        matches = list(re.finditer(pattern, html_content, re.IGNORECASE))
-        
-        for match in matches:
-            url = match.group(1).strip()
-            
-            # Process the URL
-            processed_url = _process_url(url, base_url)
-            if processed_url:
-                links.add(processed_url)
+        # Extract links from each element type
+        for tag_name, attr_name in elements_to_extract.items():
+            for element in soup.find_all(tag_name):
+                if element.has_attr(attr_name):
+                    url = element[attr_name].strip()
+                    
+                    # Process the URL
+                    processed_url = _process_url(url, base_url)
+                    if processed_url:
+                        links.add(processed_url)
+    except Exception as e:
+        logger.error(f"Error parsing HTML content with BeautifulSoup: {e}")
     
     return list(links)
 

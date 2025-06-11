@@ -81,6 +81,20 @@ def parse_args():
     parser.add_argument("--min-word-length", type=int, default=3,
                         help="Minimum length of words to consider as keywords")
     
+    # Content extraction coverage options
+    parser.add_argument("--extract-content", "-c", action="store_true", default=False,
+                        help="Enable comprehensive content extraction (metadata, headings, etc.)")
+    parser.add_argument("--content-output", default="content_extraction.json",
+                        help="File to save extracted content data")
+    parser.add_argument("--extract-headings", action="store_true", default=False,
+                        help="Extract heading tags (h1-h6) in hierarchical order")
+    parser.add_argument("--extract-metadata", action="store_true", default=False,
+                        help="Extract meta tags like title, description, keywords")
+    parser.add_argument("--extract-images-context", action="store_true", default=False,
+                        help="Extract surrounding text context for images")
+    parser.add_argument("--detect-page-type", action="store_true", default=False,
+                        help="Auto-detect page type based on URL patterns")
+    
     return parser.parse_args()
     
 
@@ -104,22 +118,30 @@ def main():
         if getattr(args, 'async', False):
             logger.info("Using asynchronous crawling mode")
             
-            # Initialize the async crawler with feature flags
-            crawler = AsyncCrawler(
-                start_url=args.url,
-                max_depth=args.depth,
-                internal_only=not args.allow_external,  # Invert the allow-external flag
-                user_agent=args.user_agent,
-                delay=args.delay,
-                respect_robots=not args.ignore_robots,  # Invert the ignore-robots flag
-                enable_image_extraction=args.extract_images,
-                enable_keyword_extraction=args.extract_keywords,
-                enable_table_extraction=args.extract_tables,
-                max_concurrency=args.concurrency
-            )
+            # Create a new event loop and set it as the current loop
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             
-            # Start crawling asynchronously
-            asyncio.run(crawler.crawl())
+            try:
+                # Initialize the async crawler with feature flags
+                crawler = AsyncCrawler(
+                    start_url=args.url,
+                    max_depth=args.depth,
+                    internal_only=not args.allow_external,  # Invert the allow-external flag
+                    user_agent=args.user_agent,
+                    delay=args.delay,
+                    respect_robots=not args.ignore_robots,  # Invert the ignore-robots flag
+                    enable_image_extraction=args.extract_images,
+                    enable_keyword_extraction=args.extract_keywords,
+                    enable_table_extraction=args.extract_tables,
+                    max_concurrent_requests=args.concurrency
+                )
+                
+                # Run the crawler in the current event loop
+                loop.run_until_complete(crawler.crawl())
+            finally:
+                # Close the event loop
+                loop.close()
         else:
             logger.info("Using synchronous crawling mode")
             
@@ -239,6 +261,110 @@ def main():
         # Save results to file in the specified format
         output_path = save_results(results, args.output_format, args.output, args.pretty_json)
         logger.info(f"Results saved to {output_path}")
+        
+        # Handle comprehensive content extraction if enabled
+        if args.extract_content or args.extract_headings or args.extract_metadata or \
+           args.extract_images_context or args.detect_page_type:
+            logger.info(f"Processing comprehensive content extraction...")
+            
+            # Determine which features to extract
+            extract_all = args.extract_content
+            extract_headings = extract_all or args.extract_headings
+            extract_metadata = extract_all or args.extract_metadata
+            extract_images_context = extract_all or args.extract_images_context
+            detect_page_type = extract_all or args.detect_page_type
+            
+            # Prepare the content extraction data structure
+            content_data = {
+                "per_page": {},
+                "overall": {
+                    "page_types": {},
+                    "languages": {},
+                    "headings": {"h1": 0, "h2": 0, "h3": 0, "h4": 0, "h5": 0, "h6": 0},
+                    "meta_tags": {"has_description": 0, "has_keywords": 0, "has_canonical": 0}
+                },
+                "metadata": {
+                    "total_pages": len(results),
+                    "extraction_time": datetime.datetime.now().isoformat(),
+                    "extraction_config": {
+                        "headings": extract_headings,
+                        "metadata": extract_metadata,
+                        "images_context": extract_images_context,
+                        "page_type": detect_page_type
+                    }
+                }
+            }
+            
+            # Process each page for content extraction
+            for url, page_data in results.items():
+                if not page_data.get('success', False) or 'html_content' not in page_data:
+                    continue
+                
+                # Initialize the page entry
+                content_data["per_page"][url] = {}
+                
+                # Extract metadata if enabled
+                if extract_metadata:
+                    # Title
+                    if 'title' in page_data:
+                        content_data["per_page"][url]['title'] = page_data['title']
+                    
+                    # Meta description
+                    if 'meta_description' in page_data:
+                        content_data["per_page"][url]['meta_description'] = page_data['meta_description']
+                        if page_data['meta_description']:
+                            content_data["overall"]["meta_tags"]["has_description"] += 1
+                    
+                    # Meta keywords
+                    if 'meta_keywords' in page_data:
+                        content_data["per_page"][url]['meta_keywords'] = page_data['meta_keywords']
+                        if page_data['meta_keywords']:
+                            content_data["overall"]["meta_tags"]["has_keywords"] += 1
+                    
+                    # Canonical URL
+                    if 'canonical_url' in page_data:
+                        content_data["per_page"][url]['canonical_url'] = page_data['canonical_url']
+                        if page_data['canonical_url']:
+                            content_data["overall"]["meta_tags"]["has_canonical"] += 1
+                    
+                    # Language
+                    if 'language' in page_data:
+                        content_data["per_page"][url]['language'] = page_data['language']
+                        if page_data['language']:
+                            lang = page_data['language']
+                            if lang not in content_data["overall"]["languages"]:
+                                content_data["overall"]["languages"][lang] = 0
+                            content_data["overall"]["languages"][lang] += 1
+                
+                # Extract headings if enabled
+                if extract_headings and 'headings' in page_data:
+                    content_data["per_page"][url]['headings'] = page_data['headings']
+                    
+                    # Update overall heading counts
+                    for heading in page_data['headings']:
+                        level = heading.get('level', 0)
+                        if 1 <= level <= 6:
+                            content_data["overall"]["headings"][f"h{level}"] += 1
+                
+                # Extract image context if enabled
+                if extract_images_context and 'images_with_context' in page_data:
+                    content_data["per_page"][url]['images_with_context'] = page_data['images_with_context']
+                
+                # Extract page type if enabled
+                if detect_page_type and 'page_type' in page_data:
+                    page_type = page_data['page_type']
+                    content_data["per_page"][url]['page_type'] = page_type
+                    
+                    # Update overall page type counts
+                    if page_type not in content_data["overall"]["page_types"]:
+                        content_data["overall"]["page_types"][page_type] = 0
+                    content_data["overall"]["page_types"][page_type] += 1
+            
+            # Save content extraction data to file
+            with open(args.content_output, 'w', encoding='utf-8') as f:
+                json.dump(content_data, f, indent=2, ensure_ascii=False)
+                
+            logger.info(f"Content extraction complete. Results saved to {args.content_output}")
         
         # Handle keyword extraction if enabled
         if args.extract_keywords:
