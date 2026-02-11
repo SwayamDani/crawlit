@@ -8,6 +8,7 @@ import re
 import asyncio
 from urllib.parse import urlparse, urljoin
 from typing import List, Dict, Set, Optional, Any
+import time
 
 from .async_fetcher import fetch_page_async as async_fetch_page
 from .parser import extract_links
@@ -16,6 +17,15 @@ from ..extractors.image_extractor import ImageTagParser
 from ..extractors.keyword_extractor import KeywordExtractor
 from ..extractors.tables import extract_tables
 from ..extractors.content_extractor import ContentExtractor
+from ..utils.progress import ProgressTracker
+from ..utils.url_filter import URLFilter
+from ..utils.session_manager import SessionManager
+from ..utils.queue_manager import QueueManager
+from ..utils.cache import PageCache, CrawlResume
+from ..utils.storage import StorageManager
+from ..utils.sitemap import SitemapParser, get_sitemaps_from_robots_async
+from ..utils.rate_limiter import AsyncRateLimiter
+from ..utils.deduplication import ContentDeduplicator
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +44,36 @@ class AsyncCrawler:
         results (dict): Dictionary containing crawl results and metadata.
     """
     
-    def __init__(self, start_url, max_depth=3, internal_only=True, 
-                 user_agent="crawlit/2.0", max_retries=3, timeout=10, delay=0.1,
-                 respect_robots=True, enable_image_extraction=False, enable_keyword_extraction=False,
-                 enable_table_extraction=False, same_path_only=False, max_concurrent_requests=5
-                 ):
+    def __init__(
+        self, 
+        start_url: str, 
+        max_depth: int = 3, 
+        internal_only: bool = True, 
+        user_agent: str = "crawlit/2.0", 
+        max_retries: int = 3, 
+        timeout: int = 10, 
+        delay: float = 0.1,
+        respect_robots: bool = True, 
+        enable_image_extraction: bool = False, 
+        enable_keyword_extraction: bool = False,
+        enable_table_extraction: bool = False,
+        enable_content_extraction: bool = False,
+        same_path_only: bool = False, 
+        max_concurrent_requests: int = 5,
+        max_queue_size: Optional[int] = None,
+        progress_tracker: Optional[ProgressTracker] = None,
+        url_filter: Optional[URLFilter] = None,
+        session_manager: Optional[SessionManager] = None,
+        page_cache: Optional[PageCache] = None,
+        storage_manager: Optional[StorageManager] = None,
+        store_html_content: bool = True,
+        use_sitemap: bool = False,
+        sitemap_urls: Optional[List[str]] = None,
+        rate_limiter: Optional[AsyncRateLimiter] = None,
+        use_per_domain_delay: bool = True,
+        content_deduplicator: Optional[ContentDeduplicator] = None,
+        enable_content_deduplication: bool = False
+    ):
         """Initialize the crawler with given parameters.
         
         Args:
@@ -55,6 +90,12 @@ class AsyncCrawler:
             enable_table_extraction (bool, optional): Whether to enable table extraction. Defaults to False.
             same_path_only (bool, optional): Whether to restrict crawling to URLs with the same path prefix as the start URL. Defaults to False.
             max_concurrent_requests (int, optional): Maximum number of concurrent requests. Defaults to 5.
+            progress_tracker (ProgressTracker, optional): Progress tracker for monitoring crawl progress. Defaults to None.
+            url_filter (URLFilter, optional): Advanced URL filter for additional filtering rules. Defaults to None.
+            session_manager (SessionManager, optional): Session manager for cookie persistence. Defaults to None.
+            page_cache (PageCache, optional): Page cache for avoiding re-fetching. Defaults to None.
+            storage_manager (StorageManager, optional): Storage manager for HTML content. Defaults to None.
+            store_html_content (bool, optional): Whether to store HTML content in results. Defaults to True.
         """
         self.start_url = start_url
         self.max_depth = max_depth
@@ -63,9 +104,13 @@ class AsyncCrawler:
         self.visited_urls = set()  # Store visited URLs
         # Get the current event loop or create a new one if none exists
         self.loop = asyncio.get_event_loop()
-        self.queue = asyncio.Queue(loop=self.loop)  # Async queue for crawling with explicit loop
+        self.queue = asyncio.Queue()  # Async queue for crawling
         self.results = {}  # Store results with metadata
         self.skipped_external_urls = set()  # Track skipped external URLs
+        
+        # Queue management
+        self.max_queue_size: Optional[int] = max_queue_size
+        self._paused: bool = False
         
         # Request parameters
         self.user_agent = user_agent
@@ -111,10 +156,15 @@ class AsyncCrawler:
         self.image_extraction_enabled = enable_image_extraction
         self.keyword_extraction_enabled = enable_keyword_extraction
         self.table_extraction_enabled = enable_table_extraction
+        self.content_extraction_enabled = enable_content_extraction
         
-        # Always enable content extraction for metadata, headings, etc.
-        self.content_extractor = ContentExtractor()
-        logger.info("Content extraction enabled")
+        # Initialize content extractor only if enabled
+        if self.content_extraction_enabled:
+            self.content_extractor = ContentExtractor()
+            logger.info("Content extraction enabled")
+        else:
+            self.content_extractor = None
+            logger.info("Content extraction disabled")
         
         if self.image_extraction_enabled:
             self.image_extractor = ImageTagParser()
@@ -134,9 +184,83 @@ class AsyncCrawler:
             logger.info("Table extraction enabled")
         else:
             logger.info("Table extraction disabled")
+        
+        # Initialize utilities
+        self.progress_tracker: Optional[ProgressTracker] = progress_tracker
+        self.url_filter: Optional[URLFilter] = url_filter
+        
+        # Initialize session manager
+        if session_manager:
+            self.session_manager: SessionManager = session_manager
+        else:
+            self.session_manager = SessionManager(
+                user_agent=user_agent,
+                timeout=timeout,
+                verify_ssl=True
+            )
+        
+        if self.progress_tracker:
+            logger.info("Progress tracking enabled")
+        if self.url_filter:
+            logger.info("Advanced URL filtering enabled")
+        
+        if self.max_queue_size:
+            logger.info(f"Queue size limit: {self.max_queue_size}")
+        
+        # Initialize page cache
+        self.page_cache = page_cache
+        if self.page_cache:
+            logger.info("Page caching enabled")
+        
+        # Initialize storage manager
+        if storage_manager:
+            self.storage_manager = storage_manager
+        else:
+            self.storage_manager = StorageManager(
+                store_html_content=store_html_content,
+                enable_disk_storage=False
+            )
+        
+        if not self.storage_manager.store_html_content:
+            logger.info("HTML content storage disabled (memory optimization)")
+        elif self.storage_manager.enable_disk_storage:
+            logger.info(f"Disk-based HTML storage enabled at {self.storage_manager.storage_dir}")
+        
+        # Initialize rate limiter for per-domain rate limiting
+        self.use_per_domain_delay = use_per_domain_delay
+        if rate_limiter:
+            self.rate_limiter: AsyncRateLimiter = rate_limiter
+        else:
+            self.rate_limiter = AsyncRateLimiter(default_delay=self.delay)
+        
+        if self.use_per_domain_delay:
+            logger.info("Per-domain rate limiting enabled")
+        
+        # Initialize content deduplicator
+        self.enable_content_deduplication = enable_content_deduplication
+        if content_deduplicator:
+            self.content_deduplicator: ContentDeduplicator = content_deduplicator
+        elif enable_content_deduplication:
+            self.content_deduplicator = ContentDeduplicator(enabled=True)
+        else:
+            self.content_deduplicator = ContentDeduplicator(enabled=False)
+        
+        if self.enable_content_deduplication or self.content_deduplicator.enabled:
+            logger.info("Content-based deduplication enabled")
             
     async def crawl(self):
         """Start the asynchronous crawling process"""
+        # Start progress tracker if provided
+        if self.progress_tracker:
+            self.progress_tracker.start()
+        
+        # Get async session from session manager
+        session = await self.session_manager.get_async_session()
+        
+        # Discover and parse sitemaps if enabled
+        if self.use_sitemap and self.sitemap_parser:
+            await self._discover_sitemaps(session)
+        
         # Add the starting URL to the queue with depth 0
         await self.queue.put((self.start_url, 0))
         
@@ -163,10 +287,18 @@ class AsyncCrawler:
                 logger.debug(f"Skipped external URL: {url}")
             if len(self.skipped_external_urls) > 5:
                 logger.debug(f"... and {len(self.skipped_external_urls) - 5} more")
+        
+        # Finish progress tracking
+        if self.progress_tracker:
+            self.progress_tracker.finish()
     
     async def _worker(self):
         """Worker task for processing URLs from the queue"""
         while True:
+            # Check if paused
+            while self._paused:
+                await asyncio.sleep(0.1)  # Small sleep to avoid busy waiting
+            
             current_url, depth = await self.queue.get()
             
             try:
@@ -196,6 +328,27 @@ class AsyncCrawler:
         """Process a single URL"""
         # Limit concurrent requests using semaphore
         async with self.semaphore:
+            # Apply per-domain rate limiting if enabled
+            if self.use_per_domain_delay:
+                # Check for crawl-delay from robots.txt if available
+                if self.respect_robots and self.robots_handler:
+                    try:
+                        crawl_delay = await self.robots_handler.get_crawl_delay(url, self.user_agent)
+                        if crawl_delay is not None:
+                            parsed_url = urlparse(url)
+                            domain = parsed_url.netloc.lower()
+                            await self.rate_limiter.set_domain_delay(domain, crawl_delay)
+                            logger.debug(f"Using crawl-delay {crawl_delay}s from robots.txt for {domain}")
+                    except Exception as e:
+                        logger.debug(f"Could not get crawl-delay from robots.txt: {e}")
+                
+                # Wait if needed for this domain
+                await self.rate_limiter.wait_if_needed(url)
+            else:
+                # Apply global delay if configured
+                if self.delay > 0:
+                    await asyncio.sleep(self.delay)
+            
             logger.info(f"Crawling: {url} (depth: {depth})")
             
             # Initialize result data for this URL
@@ -209,16 +362,16 @@ class AsyncCrawler:
                 'success': False
             }
             
-            # If delay is configured, apply it
-            if self.delay > 0:
-                await asyncio.sleep(self.delay)
+            # Get async session from session manager
+            session = await self.session_manager.get_async_session()
             
-            # Fetch the page asynchronously
+            # Fetch the page asynchronously with session
             success, response_or_error, status_code = await async_fetch_page(
                 url, 
                 self.user_agent, 
                 self.max_retries, 
-                self.timeout
+                self.timeout,
+                session=session
             )
             
             # Record the HTTP status code
@@ -244,25 +397,48 @@ class AsyncCrawler:
                         # Get the HTML content
                         html_content = await response.text()
                         
-                        # Store HTML content for extraction features (like tables)
-                        self.results[url]['html_content'] = html_content
+                        # Check for duplicate content
+                        if self.content_deduplicator.enabled:
+                            if self.content_deduplicator.is_duplicate(html_content, url):
+                                logger.info(f"Skipping duplicate content at {url}")
+                                duplicate_urls = self.content_deduplicator.get_duplicate_urls(url)
+                                self.results[url]['duplicate'] = True
+                                if duplicate_urls:
+                                    self.results[url]['duplicate_of'] = list(duplicate_urls)
+                                
+                                # Still record progress but mark as duplicate
+                                if self.progress_tracker:
+                                    self.progress_tracker.record_url(
+                                        url,
+                                        True,
+                                        links_found=0,
+                                        depth=depth,
+                                        metadata={'duplicate': True}
+                                    )
+                                return  # Skip processing duplicate content
                         
-                        # Use ContentExtractor to extract all page metadata (async version)
-                        content_data = await self.content_extractor.extract_content_async(html_content, url, response)
+                        # Store HTML content using storage manager
+                        stored_html = self.storage_manager.store_html(url, html_content)
+                        if stored_html is not None:
+                            self.results[url]['html_content'] = stored_html
                         
-                        # Merge content extractor results with page results
-                        self.results[url].update({
-                            'title': content_data.get('title'),
-                            'meta_description': content_data.get('meta_description'),
-                            'meta_keywords': content_data.get('meta_keywords'),
-                            'canonical_url': content_data.get('canonical_url'),
-                            'language': content_data.get('language'),
-                            'headings': content_data.get('headings'),
-                            'images_with_context': content_data.get('images_with_context'),
-                            'page_type': content_data.get('page_type'),
-                            'last_modified': content_data.get('last_modified')
-                        })
-                        logger.debug(f"Extracted metadata for {url}")
+                        # Use ContentExtractor to extract all page metadata (async version) if enabled
+                        if self.content_extraction_enabled and self.content_extractor:
+                            content_data = await self.content_extractor.extract_content_async(html_content, url, response)
+                            
+                            # Merge content extractor results with page results
+                            self.results[url].update({
+                                'title': content_data.get('title'),
+                                'meta_description': content_data.get('meta_description'),
+                                'meta_keywords': content_data.get('meta_keywords'),
+                                'canonical_url': content_data.get('canonical_url'),
+                                'language': content_data.get('language'),
+                                'headings': content_data.get('headings'),
+                                'images_with_context': content_data.get('images_with_context'),
+                                'page_type': content_data.get('page_type'),
+                                'last_modified': content_data.get('last_modified')
+                            })
+                            logger.debug(f"Extracted metadata for {url}")
                         
                         # Extract links from HTML content
                         links = extract_links(html_content, url, self.delay)
@@ -292,23 +468,70 @@ class AsyncCrawler:
                             except Exception as e:
                                 logger.error(f"Error extracting tables from {url}: {e}")
                                 self.results[url]['tables'] = []
+                        
+                        # Cache the response if cache is enabled
+                        if self.page_cache:
+                            self.page_cache.set(
+                                url,
+                                self.results[url],
+                                status_code,
+                                dict(response.headers),
+                                html_content
+                            )
                     else:
                         logger.debug(f"Skipping content extraction for non-HTML content type: {content_type} at {url}")
                     
                     # Store the links in the results (even if empty for non-HTML content)
                     self.results[url]['links'] = links
                     
+                    # Record progress for successful URL
+                    if self.progress_tracker:
+                        images_count = len(self.results[url].get('images', []))
+                        keywords_count = len(self.results[url].get('keywords', []))
+                        tables_count = len(self.results[url].get('tables', []))
+                        self.progress_tracker.record_url(
+                            url,
+                            True,
+                            links_found=len(links),
+                            depth=depth,
+                            metadata={
+                                'images': images_count,
+                                'keywords': keywords_count,
+                                'tables': tables_count
+                            }
+                        )
+                    
                     # Add new links to the queue (will be empty for non-HTML content)
                     for link in links:
                         if await self._should_crawl(link):
+                            # Check queue size limit
+                            if self.max_queue_size and self.queue.qsize() >= self.max_queue_size:
+                                logger.warning(f"Queue size limit ({self.max_queue_size}) reached, skipping URL: {link}")
+                                continue
                             await self.queue.put((link, depth + 1))
                 except Exception as e:
                     logger.error(f"Error processing {url}: {e}")
                     self.results[url]['error'] = str(e)
+                    # Record progress for failed URL
+                    if self.progress_tracker:
+                        self.progress_tracker.record_url(
+                            url,
+                            False,
+                            links_found=0,
+                            depth=depth
+                        )
             else:
                 # Store the error information
                 logger.error(f"Failed to fetch {url}: {response_or_error}")
                 self.results[url]['error'] = response_or_error
+                # Record progress for failed URL
+                if self.progress_tracker:
+                    self.progress_tracker.record_url(
+                        url,
+                        False,
+                        links_found=0,
+                        depth=depth
+                    )
     
     async def _should_crawl(self, url):
         """Determine if a URL should be crawled based on settings"""
@@ -342,6 +565,11 @@ class AsyncCrawler:
                 logger.debug(f"Skipping URL disallowed by robots.txt: {url}")
                 return False
         
+        # Check URL filter if provided
+        if self.url_filter and not self.url_filter.is_allowed(url):
+            logger.debug(f"Skipping URL blocked by URLFilter: {url}")
+            return False
+        
         return True
     
     def get_results(self):
@@ -357,3 +585,112 @@ class AsyncCrawler:
         if self.robots_handler:
             return await self.robots_handler.get_skipped_paths()
         return []
+    
+    def pause(self) -> None:
+        """Pause the crawling process."""
+        self._paused = True
+        logger.info("Crawling paused")
+    
+    def resume(self) -> None:
+        """Resume the crawling process."""
+        self._paused = False
+        logger.info("Crawling resumed")
+    
+    def is_paused(self) -> bool:
+        """Check if crawling is paused."""
+        return self._paused
+    
+    async def save_state(self, filepath: str) -> None:
+        """
+        Save the current crawler state to a file (async version).
+        
+        Args:
+            filepath: Path to save the state file
+        """
+        # Convert asyncio.Queue to list for serialization
+        queue_list = []
+        temp_queue = asyncio.Queue()
+        
+        # Drain the queue and rebuild it
+        while not self.queue.empty():
+            try:
+                item = self.queue.get_nowait()
+                queue_list.append(item)
+                temp_queue.put_nowait(item)
+            except asyncio.QueueEmpty:
+                break
+        
+        # Restore the queue
+        while not temp_queue.empty():
+            try:
+                item = temp_queue.get_nowait()
+                self.queue.put_nowait(item)
+            except asyncio.QueueEmpty:
+                break
+        
+        # Create a deque for compatibility with QueueManager
+        queue_deque = deque(queue_list)
+        
+        metadata = {
+            'start_url': self.start_url,
+            'max_depth': self.max_depth,
+            'internal_only': self.internal_only,
+            'respect_robots': self.respect_robots,
+            'max_queue_size': self.max_queue_size
+        }
+        QueueManager.save_state(
+            queue_deque,
+            self.visited_urls,
+            self.results,
+            filepath,
+            metadata
+        )
+    
+    async def load_state(self, filepath: str) -> None:
+        """
+        Load crawler state from a file (async version).
+        
+        Args:
+            filepath: Path to the state file
+        """
+        queue_deque, self.visited_urls, self.results, metadata = QueueManager.load_state(filepath)
+        
+        # Convert deque back to asyncio.Queue
+        self.queue = asyncio.Queue()
+        for item in queue_deque:
+            self.queue.put_nowait(item)
+        
+        # Optionally restore metadata
+        if metadata:
+            logger.info(f"Loaded state metadata: {metadata}")
+    
+    def get_queue_stats(self) -> Dict[str, Any]:
+        """
+        Get statistics about the current queue.
+        
+        Returns:
+            Dictionary with queue statistics
+        """
+        # Convert asyncio.Queue to deque for stats
+        queue_list = []
+        temp_queue = asyncio.Queue()
+        
+        # Drain the queue and rebuild it
+        while not self.queue.empty():
+            try:
+                item = self.queue.get_nowait()
+                queue_list.append(item)
+                temp_queue.put_nowait(item)
+            except asyncio.QueueEmpty:
+                break
+        
+        # Restore the queue
+        while not temp_queue.empty():
+            try:
+                item = temp_queue.get_nowait()
+                self.queue.put_nowait(item)
+            except asyncio.QueueEmpty:
+                break
+        
+        queue_deque = deque(queue_list)
+        return QueueManager.get_queue_stats(queue_deque)

@@ -13,6 +13,7 @@ recursive-include examples *
 recursive-include crawlit/crawler *
 recursive-include crawlit/output *
 recursive-include crawlit/extractors *
+recursive-include crawlit/utils *
 
 # Include tests
 recursive-include tests *
@@ -23,3 +24,6 @@ recursive-include tests *
 
 # Global excludes for common temporary/generated files
 global-exclude *.egg-info/*
+global-exclude __pycache__
+global-exclude *.pyc
+global-exclude *.pyo

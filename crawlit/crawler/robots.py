@@ -8,6 +8,7 @@ import urllib.parse
 import urllib.request
 import urllib.error
 from urllib.robotparser import RobotFileParser
+from typing import Optional
 import aiohttp
 import asyncio
 import time
@@ -20,6 +21,7 @@ class RobotsHandler:
     def __init__(self):
         """Initialize robots parser cache"""
         self.parsers = {}  # Cache for robot parsers by domain
+        self.robots_txt_content = {}  # Cache robots.txt content for crawl-delay extraction
         self.skipped_paths = []  # Track paths skipped due to robots.txt rules
 
     def get_robots_parser(self, base_url):
@@ -55,6 +57,8 @@ class RobotsHandler:
                 if response.status_code == 200:
                     content_type = response.headers.get('Content-Type', '').lower()
                     if 'text/plain' in content_type or not 'html' in content_type:
+                        # Store robots.txt content for crawl-delay extraction
+                        self.robots_txt_content[domain] = response.text
                         # Create a parser and feed the robots.txt content directly
                         parser = RobotFileParser()
                         parser.parse(response.text.splitlines())
@@ -181,6 +185,7 @@ class AsyncRobotsHandler:
     def __init__(self):
         """Initialize the AsyncRobotsHandler."""
         self.parsers = {}  # Dictionary to cache robots.txt parsers by domain
+        self.robots_txt_content = {}  # Cache robots.txt content for crawl-delay extraction
         self.last_fetch_time = {}  # Track when we last fetched a robots.txt file
         self.cache_expiry = 3600  # Cache robots.txt for 1 hour by default
         self.skipped_paths = []  # Track paths skipped due to robots.txt rules
@@ -246,6 +251,9 @@ class AsyncRobotsHandler:
                 async with session.get(robots_url, headers=headers, timeout=10) as response:
                     if response.status == 200:
                         robots_txt = await response.text()
+                        
+                        # Store robots.txt content for crawl-delay extraction
+                        self.robots_txt_content[domain] = robots_txt
                         
                         # Create a parser and feed it the robots.txt content
                         parser = RobotFileParser()
@@ -322,6 +330,55 @@ class AsyncRobotsHandler:
             list: URLs that were skipped due to robots.txt disallow rules
         """
         return self.skipped_paths
+    
+    async def get_crawl_delay(self, url: str, user_agent: str = "*") -> Optional[float]:
+        """
+        Extract crawl-delay from robots.txt for a specific URL and user agent (async version).
+        
+        Args:
+            url: The URL to check crawl-delay for
+            user_agent: The user agent to check rules for (default: "*")
+            
+        Returns:
+            Crawl-delay in seconds, or None if not specified
+        """
+        parsed_url = urllib.parse.urlparse(url)
+        domain = f"{parsed_url.scheme}://{parsed_url.netloc}"
+        
+        # Check if we need to fetch/update the robots.txt
+        if domain not in self.robots_txt_content or self._is_cache_expired(domain):
+            await self._fetch_robots_txt(domain, user_agent)
+        
+        # Check if we have robots.txt content for this domain
+        if domain not in self.robots_txt_content:
+            return None
+        
+        robots_content = self.robots_txt_content[domain]
+        lines = robots_content.splitlines()
+        
+        # Parse robots.txt to find crawl-delay for the user agent
+        current_user_agent = None
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            
+            # Check for User-agent directive
+            if line.lower().startswith('user-agent:'):
+                current_user_agent = line.split(':', 1)[1].strip()
+                continue
+            
+            # Check for Crawl-delay directive
+            if line.lower().startswith('crawl-delay:'):
+                if current_user_agent == user_agent or current_user_agent == '*':
+                    try:
+                        delay = float(line.split(':', 1)[1].strip())
+                        logger.debug(f"Found crawl-delay {delay}s for {domain} (user-agent: {current_user_agent})")
+                        return delay
+                    except ValueError:
+                        logger.warning(f"Invalid crawl-delay value in robots.txt for {domain}: {line}")
+        
+        return None
 
 # Add RobotsTxt class for backward compatibility with tests
 class RobotsTxt:

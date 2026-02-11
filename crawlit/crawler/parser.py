@@ -4,12 +4,17 @@ parser.py - HTML parsing and link extraction using BeautifulSoup
 """
 
 import logging
+from typing import List, Optional
 from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
-def extract_links(html_content, base_url, delay=0.1):
+def extract_links(
+    html_content: str, 
+    base_url: str, 
+    delay: float = 0.1
+) -> List[str]:
     """
     Extract links from HTML content from various elements using BeautifulSoup
     
@@ -66,7 +71,7 @@ def extract_links(html_content, base_url, delay=0.1):
     
     return list(links)
 
-def _process_url(url, base_url):
+def _process_url(url: str, base_url: str) -> Optional[str]:
     """
     Process a URL: normalize, filter, and convert to absolute
     

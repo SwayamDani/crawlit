@@ -16,6 +16,7 @@ setup(
     python_requires=">=3.8",
     long_description=long_description,
     long_description_content_type='text/markdown',
+    # License is now specified in pyproject.toml to avoid license-file field issues
     entry_points={
         'console_scripts': [
             'crawlit=crawlit:cli_main',

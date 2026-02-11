@@ -4,11 +4,19 @@ fetcher.py - HTTP request handling
 """
 
 import logging
+from typing import Tuple, Union, Optional
 import requests
+from crawlit.utils.errors import handle_fetch_error
 
 logger = logging.getLogger(__name__)
 
-def fetch_page(url, user_agent="crawlit/2.0", max_retries=3, timeout=10):
+def fetch_page(
+    url: str, 
+    user_agent: str = "crawlit/2.0", 
+    max_retries: int = 3, 
+    timeout: int = 10,
+    session: Optional[requests.Session] = None
+) -> Tuple[bool, Union[requests.Response, str], int]:
     """
     Fetch a web page with retries and proper error handling
     
@@ -30,15 +38,21 @@ def fetch_page(url, user_agent="crawlit/2.0", max_retries=3, timeout=10):
     retries = 0
     status_code = None
     
-    last_error_type = None
     while retries <= max_retries:
         try:
             logger.debug(f"Requesting {url} (attempt {retries + 1}/{max_retries + 1})")
-            response = requests.get(
-                url, 
-                headers=headers,
-                timeout=timeout
-            )
+            # Use provided session or create new request
+            if session:
+                response = session.get(
+                    url,
+                    timeout=timeout
+                )
+            else:
+                response = requests.get(
+                    url, 
+                    headers=headers,
+                    timeout=timeout
+                )
             status_code = response.status_code
             
             # Check if the request was successful
@@ -57,35 +71,38 @@ def fetch_page(url, user_agent="crawlit/2.0", max_retries=3, timeout=10):
                 logger.warning(f"HTTP Error {response.status_code} for {url}")
                 return False, f"HTTP Error: {response.status_code}", status_code
                 
-        except requests.exceptions.Timeout:
-            logger.warning(f"Timeout error for {url} (attempt {retries + 1})")
+        except (requests.exceptions.Timeout, 
+                requests.exceptions.ConnectionError,
+                requests.exceptions.TooManyRedirects,
+                requests.exceptions.HTTPError,
+                requests.exceptions.RequestException) as e:
+            # Use standardized error handling
+            should_retry, error_message, error_status = handle_fetch_error(
+                url, e, max_retries, retries
+            )
+            
+            status_code = error_status or status_code
+            logger.warning(f"{error_message} (attempt {retries + 1})")
+            
+            if not should_retry:
+                # Don't retry for certain errors (e.g., TooManyRedirects, 4xx)
+                return False, error_message, status_code or 500
+            
             retries += 1
-            status_code = 408  # Request Timeout
-            last_error_type = "timeout"
-            
-        except requests.exceptions.ConnectionError:
-            logger.warning(f"Connection error for {url} (attempt {retries + 1})")
-            retries += 1
-            status_code = 503  # Service Unavailable
-            last_error_type = "connection"
-            
-        except requests.exceptions.TooManyRedirects:
-            logger.warning(f"Too many redirects for {url}")
-            return False, "Too many redirects", 310
-            
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Request failed for {url}: {e}")
-            return False, str(e), status_code or 500
+            if retries > max_retries:
+                return False, error_message, status_code or 429
     
-    # Include error type in the message if known
-    if last_error_type:
-        return False, f"Max retries ({max_retries}) exceeded due to {last_error_type} errors", status_code or 429
-    else:
-        return False, f"Max retries ({max_retries}) exceeded", status_code or 429
+    # If we've exhausted all retries
+    return False, f"Max retries ({max_retries}) exceeded", status_code or 429
 
 # Add fetch_url as an alias for fetch_page to make tests pass
 # This provides backward compatibility with test code
-def fetch_url(url, user_agent="crawlit/2.0", max_retries=3, timeout=10):
+def fetch_url(
+    url: str, 
+    user_agent: str = "crawlit/2.0", 
+    max_retries: int = 3, 
+    timeout: int = 10
+) -> requests.Response:
     """
     Alias for fetch_page - maintained for backward compatibility with tests
     

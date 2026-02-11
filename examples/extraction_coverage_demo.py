@@ -12,7 +12,7 @@ from datetime import datetime
 # Add the parent directory to sys.path to import the library
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from crawlit.crawler.crawler import Crawler
+from crawlit.crawler.engine import Crawler
 from crawlit.crawler.async_engine import AsyncCrawler
 import asyncio
 
@@ -75,16 +75,16 @@ def run_sync_crawler():
         start_url="https://example.com",
         max_depth=1,
         respect_robots=True,
-        extract_images=True,
-        extract_keywords=True,
-        extract_tables=True
+        enable_image_extraction=True,
+        enable_keyword_extraction=True,
+        enable_table_extraction=True
     )
     
     # Start the crawl
-    crawler.engine.crawl()
+    crawler.crawl()
     
     # Get the results
-    results = crawler.engine.results
+    results = crawler.get_results()
     
     # Save results to file
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

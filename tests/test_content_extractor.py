@@ -57,6 +57,7 @@ class TestContentExtractor:
         # Mock response for async requests
         self.async_response = MagicMock()
         self.async_response.status = 200
+        self.async_response.status_code = 200  # Add status_code for compatibility
         self.async_response.headers = {"Content-Type": "text/html", "Last-Modified": "Wed, 28 May 2025 12:00:00 GMT"}
     
     def test_sync_extract_content(self):

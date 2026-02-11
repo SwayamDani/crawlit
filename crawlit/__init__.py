@@ -24,6 +24,31 @@ from crawlit.extractors.keyword_extractor import KeywordExtractor
 # Export compatibility utilities
 from crawlit.compat import ensure_response_compatibility, is_async_context
 
+# Export utility modules
+from crawlit.utils import (
+    SessionManager,
+    URLFilter,
+    ProgressTracker,
+    create_progress_callback,
+    QueueManager,
+    PageCache,
+    CrawlResume,
+    StorageManager,
+    SitemapParser,
+    get_sitemaps_from_robots,
+    get_sitemaps_from_robots_async,
+    RateLimiter,
+    AsyncRateLimiter,
+    ContentDeduplicator,
+    LoggingConfig,
+    configure_logging,
+    get_logger,
+    log_with_context,
+    CrawlitError,
+    FetchError,
+    handle_fetch_error
+)
+
 # CLI functionality (but not executed on import)
 def cli_main():
     """Entry point for the CLI interface when installed with [cli] option"""
@@ -51,4 +76,27 @@ __all__ = [
     'tables_to_json',
     'ImageTagParser',    # Image extraction
     'KeywordExtractor',  # Keyword extraction
+    
+    # Utility modules
+    'SessionManager',    # Session management
+    'URLFilter',         # URL filtering
+    'ProgressTracker',   # Progress tracking
+    'create_progress_callback',  # Progress callback helper
+    'QueueManager',      # Queue management
+    'PageCache',         # Page caching
+    'CrawlResume',       # Crawl resume utilities
+    'StorageManager',    # HTML content storage management
+    'SitemapParser',     # Sitemap parsing
+    'get_sitemaps_from_robots',  # Extract sitemaps from robots.txt
+    'get_sitemaps_from_robots_async',  # Extract sitemaps from robots.txt (async)
+    'RateLimiter',       # Per-domain rate limiting (sync)
+    'AsyncRateLimiter',  # Per-domain rate limiting (async)
+    'ContentDeduplicator',  # Content-based deduplication
+    'LoggingConfig',     # Enhanced logging configuration
+    'configure_logging', # Convenience function for logging setup
+    'get_logger',        # Get logger instance
+    'log_with_context',  # Log with additional context
+    'CrawlitError',      # Base exception
+    'FetchError',        # Fetch exception
+    'handle_fetch_error',  # Error handler
 ]

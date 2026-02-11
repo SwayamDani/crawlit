@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+"""
+url_filter.py - Advanced URL filtering utilities
+"""
+
+import re
+import logging
+from typing import List, Optional, Pattern, Set, Callable
+from urllib.parse import urlparse, parse_qs
+
+logger = logging.getLogger(__name__)
+
+
+class URLFilter:
+    """
+    Advanced URL filtering with support for regex patterns, file extensions,
+    query parameters, and custom filter functions.
+    """
+    
+    def __init__(
+        self,
+        allowed_patterns: Optional[List[Pattern]] = None,
+        blocked_patterns: Optional[List[Pattern]] = None,
+        allowed_extensions: Optional[List[str]] = None,
+        blocked_extensions: Optional[List[str]] = None,
+        allowed_query_params: Optional[List[str]] = None,
+        blocked_query_params: Optional[List[str]] = None,
+        custom_filter: Optional[Callable[[str], bool]] = None
+    ) -> None:
+        """
+        Initialize URL filter with various filtering options.
+        
+        Args:
+            allowed_patterns: List of regex patterns that URLs must match (whitelist)
+            blocked_patterns: List of regex patterns that URLs must not match (blacklist)
+            allowed_extensions: List of file extensions to allow (e.g., ['.html', '.htm'])
+            blocked_extensions: List of file extensions to block (e.g., ['.pdf', '.zip'])
+            allowed_query_params: List of query parameter names that must be present
+            blocked_query_params: List of query parameter names that must not be present
+            custom_filter: Custom function that takes a URL and returns True if allowed
+        """
+        self.allowed_patterns: List[Pattern] = allowed_patterns or []
+        self.blocked_patterns: List[Pattern] = blocked_patterns or []
+        self.allowed_extensions: Set[str] = set(allowed_extensions or [])
+        self.blocked_extensions: Set[str] = set(blocked_extensions or [])
+        self.allowed_query_params: Set[str] = set(allowed_query_params or [])
+        self.blocked_query_params: Set[str] = set(blocked_query_params or [])
+        self.custom_filter: Optional[Callable[[str], bool]] = custom_filter
+    
+    def is_allowed(self, url: str) -> bool:
+        """
+        Check if a URL is allowed based on all configured filters.
+        
+        Args:
+            url: The URL to check
+            
+        Returns:
+            True if the URL is allowed, False otherwise
+        """
+        # Check custom filter first
+        if self.custom_filter and not self.custom_filter(url):
+            logger.debug(f"URL blocked by custom filter: {url}")
+            return False
+        
+        # Check blocked patterns (blacklist)
+        for pattern in self.blocked_patterns:
+            if pattern.search(url):
+                logger.debug(f"URL blocked by pattern {pattern.pattern}: {url}")
+                return False
+        
+        # Check allowed patterns (whitelist) - if any patterns are specified
+        if self.allowed_patterns:
+            matched = False
+            for pattern in self.allowed_patterns:
+                if pattern.search(url):
+                    matched = True
+                    break
+            if not matched:
+                logger.debug(f"URL not in allowed patterns: {url}")
+                return False
+        
+        # Check file extensions
+        parsed = urlparse(url)
+        path = parsed.path.lower()
+        
+        # Extract extension
+        if '.' in path:
+            ext = '.' + path.split('.')[-1]
+        else:
+            ext = ''
+        
+        # Check blocked extensions
+        if ext and ext in self.blocked_extensions:
+            logger.debug(f"URL blocked by extension {ext}: {url}")
+            return False
+        
+        # Check allowed extensions (if specified)
+        if self.allowed_extensions:
+            # Empty extension is allowed if '' is in allowed_extensions
+            if ext not in self.allowed_extensions:
+                logger.debug(f"URL extension {ext} not in allowed list: {url}")
+                return False
+        
+        # Check query parameters
+        query_params = parse_qs(parsed.query)
+        param_names = set(query_params.keys())
+        
+        # Check blocked query parameters
+        if self.blocked_query_params and param_names.intersection(self.blocked_query_params):
+            logger.debug(f"URL blocked by query parameters: {url}")
+            return False
+        
+        # Check allowed query parameters (if specified)
+        if self.allowed_query_params:
+            if not param_names.intersection(self.allowed_query_params):
+                logger.debug(f"URL missing required query parameters: {url}")
+                return False
+        
+        return True
+    
+    @classmethod
+    def from_patterns(
+        cls,
+        allowed_regex: Optional[str] = None,
+        blocked_regex: Optional[str] = None,
+        **kwargs
+    ) -> 'URLFilter':
+        """
+        Create a URLFilter from regex pattern strings.
+        
+        Args:
+            allowed_regex: Regex pattern string for allowed URLs
+            blocked_regex: Regex pattern string for blocked URLs
+            **kwargs: Additional arguments passed to __init__
+            
+        Returns:
+            A configured URLFilter instance
+        """
+        allowed_patterns = [re.compile(allowed_regex)] if allowed_regex else None
+        blocked_patterns = [re.compile(blocked_regex)] if blocked_regex else None
+        
+        return cls(
+            allowed_patterns=allowed_patterns,
+            blocked_patterns=blocked_patterns,
+            **kwargs
+        )
+    
+    @classmethod
+    def html_only(cls) -> 'URLFilter':
+        """
+        Create a filter that only allows HTML pages.
+        
+        Returns:
+            A URLFilter configured to only allow HTML files
+        """
+        return cls(
+            allowed_extensions=['.html', '.htm', ''],
+            blocked_extensions=['.pdf', '.zip', '.jpg', '.png', '.gif', '.css', '.js']
+        )
+    
+    @classmethod
+    def exclude_media(cls) -> 'URLFilter':
+        """
+        Create a filter that excludes media files.
+        
+        Returns:
+            A URLFilter configured to block common media file extensions
+        """
+        return cls(
+            blocked_extensions=[
+                '.jpg', '.jpeg', '.png', '.gif', '.svg', '.webp',
+                '.mp4', '.avi', '.mov', '.wmv', '.flv',
+                '.mp3', '.wav', '.ogg', '.m4a',
+                '.pdf', '.zip', '.rar', '.tar', '.gz'
+            ]
+        )
+

@@ -33,6 +33,7 @@ env/
 ENV/
 test_install/
 test_cli/
+.env
 
 # IDE files
 .idea/

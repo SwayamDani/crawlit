@@ -1,12 +1,13 @@
-Metadata-Version: 2.4
+Metadata-Version: 2.1
 Name: crawlit
 Version: 0.2.0
 Summary: Modular, Ethical Python Web Crawler
 Author-email: Swayam Dani <swayamdani@swayamdani.com>
-License-Expression: MIT
+License: MIT
 Project-URL: Homepage, https://github.com/SwayamDani/crawlit
 Project-URL: Bug Tracker, https://github.com/SwayamDani/crawlit/issues
 Project-URL: Documentation, https://github.com/SwayamDani/crawlit/tree/main/docs
+Classifier: License :: OSI Approved :: MIT License
 Classifier: Programming Language :: Python :: 3
 Classifier: Programming Language :: Python :: 3.8
 Classifier: Programming Language :: Python :: 3.9
@@ -20,11 +21,11 @@ Requires-Python: >=3.8
 Description-Content-Type: text/markdown
 License-File: LICENSE
 Requires-Dist: requests>=2.25.0
+Requires-Dist: aiohttp>=3.8.0
 Requires-Dist: html5lib>=1.1
 Requires-Dist: nltk>=3.6.0
+Requires-Dist: beautifulsoup4>=4.9.0
 Provides-Extra: cli
-Dynamic: license-file
-Dynamic: requires-python
 
 # 🕷️ crawlit - Modular, Ethical Python Web Crawler
 
@@ -35,23 +36,43 @@ A powerful, modular, and ethical web crawler built in Python. Designed for secur
 
 ## 🚀 Features
 
+### Core Crawling
 - **Modular Architecture**: Easily extend with custom modules and parsers
-- **Ethical Crawling**: Configurable robots.txt compliance and rate limiting
+- **Synchronous & Asynchronous**: Both sync (`Crawler`) and async (`AsyncCrawler`) implementations
+- **Multi-threaded Support**: Thread pool support for concurrent requests in sync crawler
 - **Depth Control**: Set maximum crawl depth to prevent excessive resource usage
 - **Domain Filtering**: Restrict crawling to specific domains or subdomains
-- **Robust Error Handling**: Gracefully manage connection issues and malformed pages
-- **Multiple Output Formats**: Export results as JSON, CSV, or plain text
+- **BFS Strategy**: Breadth-first search crawling algorithm
+- **Queue Management**: Pause/resume, save/load state, and queue size limits
+
+### Ethical Crawling
+- **Robots.txt Compliance**: Configurable robots.txt respect with automatic crawl-delay extraction
+- **Rate Limiting**: Global and per-domain rate limiting with automatic crawl-delay support
+- **Session Management**: Cookie persistence, SSL verification, and custom headers
+- **Authentication**: Support for Basic/Digest Auth, OAuth tokens, API keys, and custom headers
+- **Retry Logic**: Configurable retry attempts with exponential backoff
+
+### Content Extraction
 - **Advanced Table Extraction**: Extract tables with support for complex structures and cell spanning
 - **Image Extraction**: Extract and analyze images including alt text and accessibility information
 - **Keyword Extraction**: Identify key terms and phrases from webpage content
-- **Detailed Logging**: Comprehensive logging of all crawler activities
+- **Content Extraction**: Optional metadata extraction (title, description, headings, canonical URLs)
+- **Content Deduplication**: Skip pages with duplicate content using SHA-256 hashing
+
+### Data Management
+- **Page Caching**: Memory and disk-based caching with TTL support
+- **Storage Management**: Optional HTML content storage (memory or disk-based)
+- **Crawl Resume**: Save and resume interrupted crawls
+- **Progress Tracking**: Real-time progress monitoring with callbacks
+- **Multiple Output Formats**: Export results as JSON, CSV, TXT, or HTML
+
+### Advanced Features
+- **Sitemap Support**: Automatic sitemap discovery and parsing from robots.txt
+- **URL Filtering**: Advanced URL filtering (patterns, extensions, query parameters)
+- **Enhanced Logging**: Structured JSON logging, log rotation, configurable levels
+- **Error Handling**: Comprehensive error handling with custom exceptions
 - **Command Line Interface**: Simple, powerful CLI for easy usage
 - **Programmatic API**: Use as a library in your own Python code
-- **Version-dependent Features**: 
-  - `v0.1.0`: Standard web crawling capabilities
-  - `v0.2.0`: Enhanced features including image extraction, table extraction, and keyword extraction
-  - `crawlit/1.0`: Standard web crawling capabilities (User-Agent)
-  - `crawlit/2.0`: Enhanced features including multi-depth table extraction, keyword extraction, and image analysis (User-Agent)
 
 ## 📋 Requirements
 
@@ -114,6 +135,8 @@ make html  # On Windows: make.bat html
 
 ### As a Library in Your Python Code
 
+#### Basic Usage
+
 ```python
 from crawlit import Crawler, save_results, generate_summary_report
 
@@ -136,6 +159,131 @@ print(f"Crawled {len(results)} URLs")
 
 # Save results in different formats
 save_results(results, "json", "crawl_results.json", pretty=True)
+```
+
+#### Advanced Usage with New Features
+
+```python
+from crawlit import (
+    Crawler, 
+    SessionManager, 
+    URLFilter, 
+    ProgressTracker, 
+    RateLimiter,
+    PageCache,
+    StorageManager,
+    SitemapParser,
+    ContentDeduplicator,
+    LoggingConfig
+)
+
+# Configure enhanced logging
+logging_config = LoggingConfig(
+    level="INFO",
+    json_logging=True,
+    log_file="crawl.log",
+    rotation_size_mb=10
+)
+logging_config.apply()
+
+# Set up session with authentication
+session_manager = SessionManager(
+    user_agent="MyBot/1.0",
+    oauth_token="your-oauth-token",
+    api_key="your-api-key",
+    api_key_header="X-API-Key"
+)
+
+# Configure URL filtering
+url_filter = URLFilter(
+    allowed_patterns=[r".*example\.com.*"],
+    blocked_extensions=[".pdf", ".zip"]
+)
+
+# Set up progress tracking
+def progress_callback(stats):
+    print(f"Progress: {stats['crawled']}/{stats['total']} URLs")
+
+progress_tracker = ProgressTracker(callback=progress_callback)
+
+# Configure per-domain rate limiting
+rate_limiter = RateLimiter(default_delay=0.5)
+rate_limiter.set_domain_delay("example.com", 1.0)  # Slower for specific domain
+
+# Set up page caching
+page_cache = PageCache(use_disk=True, cache_dir="./cache", ttl=3600)
+
+# Configure storage (optional HTML content storage)
+storage_manager = StorageManager(
+    store_html_content=True,
+    use_disk_storage=True,
+    storage_dir="./html_storage"
+)
+
+# Set up content deduplication
+content_deduplicator = ContentDeduplicator(
+    min_content_length=100,
+    normalize_content=True
+)
+
+# Initialize crawler with all features
+crawler = Crawler(
+    start_url="https://example.com",
+    max_depth=3,
+    session_manager=session_manager,
+    url_filter=url_filter,
+    progress_tracker=progress_tracker,
+    rate_limiter=rate_limiter,
+    page_cache=page_cache,
+    storage_manager=storage_manager,
+    content_deduplicator=content_deduplicator,
+    use_per_domain_delay=True,
+    enable_content_extraction=True,
+    enable_content_deduplication=True,
+    use_sitemap=True,  # Auto-discover sitemaps from robots.txt
+    max_workers=4,  # Multi-threaded crawling
+    max_queue_size=1000
+)
+
+# Start crawling
+crawler.crawl()
+
+# Pause and resume
+crawler.pause()
+# ... do something ...
+crawler.resume()
+
+# Save state for later resumption
+crawler.save_state("crawl_state.json")
+
+# Get results
+results = crawler.get_results()
+print(f"Crawled {len(results)} URLs")
+```
+
+#### Asynchronous Usage
+
+```python
+import asyncio
+from crawlit import AsyncCrawler, AsyncRateLimiter
+
+async def main():
+    # Async crawler with async rate limiter
+    rate_limiter = AsyncRateLimiter(default_delay=0.5)
+    
+    crawler = AsyncCrawler(
+        start_url="https://example.com",
+        max_depth=3,
+        rate_limiter=rate_limiter,
+        use_per_domain_delay=True,
+        max_concurrent_requests=10
+    )
+    
+    await crawler.crawl()
+    results = crawler.get_results()
+    print(f"Crawled {len(results)} URLs")
+
+asyncio.run(main())
 ```
 
 See the `examples/programmatic_usage.py` file for a complete example.
@@ -317,6 +465,296 @@ The image extraction feature provides:
 
 For a complete example, see `examples/image_extraction.py`.
 
+## 🔐 Authentication & Session Management
+
+Crawlit supports multiple authentication methods:
+
+```python
+from crawlit import Crawler, SessionManager
+
+# OAuth token authentication
+session_manager = SessionManager(
+    user_agent="MyBot/1.0",
+    oauth_token="your-oauth-token"
+)
+
+# API key authentication
+session_manager = SessionManager(
+    user_agent="MyBot/1.0",
+    api_key="your-api-key",
+    api_key_header="X-API-Key"  # Optional, defaults to "Authorization"
+)
+
+# Basic authentication
+from requests.auth import HTTPBasicAuth
+session_manager = SessionManager(
+    user_agent="MyBot/1.0",
+    auth=HTTPBasicAuth("username", "password")
+)
+
+# Custom headers
+session_manager = SessionManager(
+    user_agent="MyBot/1.0",
+    headers={"X-Custom-Header": "value"}
+)
+
+# Combine multiple methods
+session_manager = SessionManager(
+    user_agent="MyBot/1.0",
+    oauth_token="token",
+    api_key="key",
+    headers={"X-Custom": "value"}
+)
+
+# Use with crawler
+crawler = Crawler(
+    start_url="https://example.com",
+    session_manager=session_manager
+)
+```
+
+## ⚡ Rate Limiting
+
+### Per-Domain Rate Limiting
+
+```python
+from crawlit import Crawler, RateLimiter
+
+# Create rate limiter with default delay
+rate_limiter = RateLimiter(default_delay=0.5)
+
+# Set custom delays for specific domains
+rate_limiter.set_domain_delay("example.com", 1.0)
+rate_limiter.set_domain_delay("api.example.com", 2.0)
+
+# Use with crawler (automatically respects robots.txt crawl-delay)
+crawler = Crawler(
+    start_url="https://example.com",
+    rate_limiter=rate_limiter,
+    use_per_domain_delay=True
+)
+```
+
+The crawler automatically extracts and respects `Crawl-delay` directives from robots.txt files.
+
+## 🗺️ Sitemap Support
+
+```python
+from crawlit import Crawler
+
+# Auto-discover sitemaps from robots.txt
+crawler = Crawler(
+    start_url="https://example.com",
+    use_sitemap=True  # Automatically discovers and parses sitemaps
+)
+
+# Or provide explicit sitemap URLs
+crawler = Crawler(
+    start_url="https://example.com",
+    use_sitemap=True,
+    sitemap_urls=[
+        "https://example.com/sitemap.xml",
+        "https://example.com/sitemap-news.xml"
+    ]
+)
+```
+
+## 📊 Progress Tracking
+
+```python
+from crawlit import Crawler, ProgressTracker
+
+def progress_callback(stats):
+    print(f"Crawled: {stats['crawled']}, Failed: {stats['failed']}, Total: {stats['total']}")
+    print(f"Success Rate: {stats['success_rate']:.2f}%")
+
+progress_tracker = ProgressTracker(callback=progress_callback)
+
+crawler = Crawler(
+    start_url="https://example.com",
+    progress_tracker=progress_tracker
+)
+
+crawler.crawl()
+
+# Get final statistics
+stats = progress_tracker.get_stats()
+print(f"Final stats: {stats}")
+```
+
+## 🔍 URL Filtering
+
+```python
+from crawlit import Crawler, URLFilter
+
+# Filter by patterns
+url_filter = URLFilter(
+    allowed_patterns=[r".*example\.com.*"],
+    blocked_patterns=[r".*admin.*"]
+)
+
+# Filter by file extensions
+url_filter = URLFilter(
+    allowed_extensions=[".html", ".htm"],
+    blocked_extensions=[".pdf", ".zip"]
+)
+
+# Use factory methods
+url_filter = URLFilter.html_only()  # Only HTML pages
+url_filter = URLFilter.exclude_media()  # Exclude images, videos, etc.
+
+# Use with crawler
+crawler = Crawler(
+    start_url="https://example.com",
+    url_filter=url_filter
+)
+```
+
+## 💾 Caching & Resume
+
+```python
+from crawlit import Crawler, PageCache, CrawlResume
+
+# Set up page caching
+page_cache = PageCache(
+    use_disk=True,
+    cache_dir="./cache",
+    ttl=3600  # Cache for 1 hour
+)
+
+crawler = Crawler(
+    start_url="https://example.com",
+    page_cache=page_cache
+)
+
+# Save state for resumption
+crawler.save_state("crawl_state.json")
+
+# Later, resume from saved state
+crawler.load_state("crawl_state.json")
+crawler.crawl()  # Continues from where it left off
+```
+
+## 🗄️ Storage Management
+
+```python
+from crawlit import Crawler, StorageManager
+
+# Store HTML content in memory (default)
+storage_manager = StorageManager(store_html_content=True)
+
+# Disable HTML content storage (save memory)
+storage_manager = StorageManager(store_html_content=False)
+
+# Store HTML content on disk
+storage_manager = StorageManager(
+    store_html_content=True,
+    use_disk_storage=True,
+    storage_dir="./html_storage"
+)
+
+crawler = Crawler(
+    start_url="https://example.com",
+    storage_manager=storage_manager
+)
+```
+
+## 🔄 Content Deduplication
+
+```python
+from crawlit import Crawler, ContentDeduplicator
+
+# Set up content deduplication
+content_deduplicator = ContentDeduplicator(
+    min_content_length=100,  # Minimum content length to consider
+    normalize_content=True   # Normalize content (remove whitespace, etc.)
+)
+
+crawler = Crawler(
+    start_url="https://example.com",
+    content_deduplicator=content_deduplicator,
+    enable_content_deduplication=True
+)
+
+# Get deduplication statistics
+stats = content_deduplicator.get_stats()
+print(f"Duplicate pages found: {stats['duplicates']}")
+```
+
+## 📝 Enhanced Logging
+
+```python
+from crawlit import LoggingConfig, configure_logging
+
+# Configure structured JSON logging
+logging_config = LoggingConfig(
+    level="INFO",
+    json_logging=True,
+    log_file="crawl.log",
+    rotation_size_mb=10,  # Rotate when file reaches 10MB
+    rotation_time="midnight"  # Or rotate daily at midnight
+)
+
+logging_config.apply()
+
+# Or use convenience function
+configure_logging(
+    level="INFO",
+    log_file="crawl.log",
+    json_logging=True
+)
+
+# Use contextual logging
+from crawlit import log_with_context
+
+log_with_context("INFO", "Starting crawl", {"url": "https://example.com"})
+```
+
+## 🧵 Multi-threaded Crawling
+
+```python
+from crawlit import Crawler
+
+# Enable multi-threaded crawling (sync crawler only)
+crawler = Crawler(
+    start_url="https://example.com",
+    max_workers=4  # Use 4 worker threads
+)
+
+# Single-threaded (default)
+crawler = Crawler(
+    start_url="https://example.com",
+    max_workers=1  # Or omit for default
+)
+```
+
+## ⏸️ Pause & Resume
+
+```python
+from crawlit import Crawler
+
+crawler = Crawler(start_url="https://example.com")
+
+# Start crawling in background thread
+import threading
+thread = threading.Thread(target=crawler.crawl)
+thread.start()
+
+# Pause crawling
+crawler.pause()
+
+# Check if paused
+if crawler.is_paused():
+    print("Crawler is paused")
+
+# Resume crawling
+crawler.resume()
+
+# Get queue statistics
+stats = crawler.get_queue_stats()
+print(f"Queue size: {stats['size']}")
+```
+
 ## 🏗️ Project Structure
 
 ```
@@ -325,23 +763,38 @@ crawlit/
 ├── requirements.txt     # Project dependencies
 ├── crawler/             # Core crawler modules
 │   ├── __init__.py
-│   ├── engine.py        # Core crawler logic
-│   ├── fetcher.py       # HTTP request handling
+│   ├── engine.py        # Synchronous crawler engine
+│   ├── async_engine.py  # Asynchronous crawler engine
+│   ├── fetcher.py       # HTTP request handling (sync)
+│   ├── async_fetcher.py # HTTP request handling (async)
 │   ├── parser.py        # HTML parsing and link extraction
-│   └── robots.py        # Robots.txt parser
+│   └── robots.py        # Robots.txt parser with crawl-delay support
 ├── extractors/          # Data extraction modules
 │   ├── __init__.py
-│   ├── image_extractor.py  # Image extraction and analysis
+│   ├── content_extractor.py  # Unified content extraction
+│   ├── image_extractor.py    # Image extraction and analysis
 │   ├── keyword_extractor.py  # Keyword and keyphrase extraction
-│   └── tables.py        # Advanced table extraction
+│   └── tables.py            # Advanced table extraction
+├── utils/               # Utility modules
+│   ├── __init__.py
+│   ├── session_manager.py   # Session management with auth
+│   ├── url_filter.py         # Advanced URL filtering
+│   ├── progress.py           # Progress tracking
+│   ├── queue_manager.py      # Queue state management
+│   ├── cache.py              # Page caching and resume
+│   ├── storage.py            # HTML content storage
+│   ├── sitemap.py            # Sitemap parsing
+│   ├── rate_limiter.py       # Per-domain rate limiting
+│   ├── deduplication.py      # Content deduplication
+│   ├── logging_config.py     # Enhanced logging
+│   └── errors.py             # Custom exceptions
 ├── output/              # Output formatters
 │   ├── __init__.py
 │   └── formatters.py    # Output formatting functions
 ├── examples/            # Example usage
 │   ├── programmatic_usage.py  # Example of using as a library
-│   ├── image_extraction.py    # Example of image extraction
-│   ├── keyword_extraction.py  # Example of keyword extraction
-│   └── table_extraction.py    # Example of table extraction
+│   ├── authenticated_crawling.py  # Authentication examples
+│   └── extraction_coverage_demo.py  # Extraction features demo
 └── tests/               # Unit and integration tests
     └── __init__.py
 ```

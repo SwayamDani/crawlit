@@ -6,7 +6,10 @@ engine.py - Core crawler engine
 import logging
 import re
 import time
+import threading
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, Set, List, Any, Optional, Tuple
 from urllib.parse import urlparse, urljoin
 
 from .fetcher import fetch_page
@@ -16,6 +19,15 @@ from ..extractors.image_extractor import ImageTagParser
 from ..extractors.keyword_extractor import KeywordExtractor
 from ..extractors.tables import extract_tables
 from ..extractors.content_extractor import ContentExtractor
+from ..utils.progress import ProgressTracker
+from ..utils.url_filter import URLFilter
+from ..utils.session_manager import SessionManager
+from ..utils.queue_manager import QueueManager
+from ..utils.cache import PageCache, CrawlResume
+from ..utils.storage import StorageManager
+from ..utils.sitemap import SitemapParser, get_sitemaps_from_robots
+from ..utils.rate_limiter import RateLimiter
+from ..utils.deduplication import ContentDeduplicator
 
 logger = logging.getLogger(__name__)
 
@@ -34,10 +46,36 @@ class Crawler:
         results (dict): Dictionary containing crawl results and metadata.
     """
     
-    def __init__(self, start_url, max_depth=3, internal_only=True, 
-                 user_agent="crawlit/2.0", max_retries=3, timeout=10, delay=0.1,
-                 respect_robots=True, enable_image_extraction=False, enable_keyword_extraction=False,
-                 enable_table_extraction=False, same_path_only=False):
+    def __init__(
+        self, 
+        start_url: str, 
+        max_depth: int = 3, 
+        internal_only: bool = True, 
+        user_agent: str = "crawlit/2.0", 
+        max_retries: int = 3, 
+        timeout: int = 10, 
+        delay: float = 0.1,
+        respect_robots: bool = True, 
+        enable_image_extraction: bool = False, 
+        enable_keyword_extraction: bool = False,
+        enable_table_extraction: bool = False,
+        enable_content_extraction: bool = False,
+        same_path_only: bool = False,
+        max_queue_size: Optional[int] = None,
+        max_workers: Optional[int] = 1,
+        progress_tracker: Optional[ProgressTracker] = None,
+        url_filter: Optional[URLFilter] = None,
+        session_manager: Optional[SessionManager] = None,
+        page_cache: Optional[PageCache] = None,
+        storage_manager: Optional[StorageManager] = None,
+        store_html_content: bool = True,
+        use_sitemap: bool = False,
+        sitemap_urls: Optional[List[str]] = None,
+        rate_limiter: Optional[RateLimiter] = None,
+        use_per_domain_delay: bool = True,
+        content_deduplicator: Optional[ContentDeduplicator] = None,
+        enable_content_deduplication: bool = False
+    ) -> None:
         """Initialize the crawler with given parameters.
         
         Args:
@@ -53,62 +91,89 @@ class Crawler:
             enable_keyword_extraction (bool, optional): Whether to enable keyword extraction. Defaults to False.
             enable_table_extraction (bool, optional): Whether to enable table extraction. Defaults to False.
             same_path_only (bool, optional): Whether to restrict crawling to URLs with the same path prefix as the start URL. Defaults to False.
+            max_queue_size (int, optional): Maximum size of the URL queue. Defaults to None (no limit).
+            max_workers (int, optional): Maximum number of worker threads for concurrent crawling. Defaults to 1 (single-threaded). Set to > 1 to enable multi-threading.
+            progress_tracker (ProgressTracker, optional): Progress tracker for monitoring crawl progress. Defaults to None.
+            url_filter (URLFilter, optional): Advanced URL filter for additional filtering rules. Defaults to None.
+            session_manager (SessionManager, optional): Session manager for cookie persistence. Defaults to None.
+            page_cache (PageCache, optional): Page cache for avoiding re-fetching. Defaults to None.
+            storage_manager (StorageManager, optional): Storage manager for HTML content. Defaults to None.
+            store_html_content (bool, optional): Whether to store HTML content in results. Defaults to True.
+            use_sitemap (bool, optional): Whether to discover and use sitemaps for URL discovery. Defaults to False.
+            sitemap_urls (List[str], optional): Explicit list of sitemap URLs to parse. If not provided, will try to discover from robots.txt or common locations.
         """
-        self.start_url = start_url
-        self.max_depth = max_depth
-        self.internal_only = internal_only
-        self.respect_robots = respect_robots
-        self.visited_urls = set()  # Store visited URLs
-        self.queue = deque()  # Queue for BFS crawling
-        self.results = {}  # Store results with metadata
-        self.skipped_external_urls = set()  # Track skipped external URLs
+        self.start_url: str = start_url
+        self.max_depth: int = max_depth
+        self.internal_only: bool = internal_only
+        self.respect_robots: bool = respect_robots
+        self.visited_urls: Set[str] = set()  # Store visited URLs
+        self.queue: deque = deque()  # Queue for BFS crawling
+        self.results: Dict[str, Dict[str, Any]] = {}  # Store results with metadata
+        self.skipped_external_urls: Set[str] = set()  # Track skipped external URLs
+        
+        # Queue management
+        self.max_queue_size: Optional[int] = max_queue_size
+        self._paused: bool = False
+        
+        # Threading support
+        self.max_workers: Optional[int] = max_workers if max_workers and max_workers > 0 else 1
+        self._queue_lock: threading.Lock = threading.Lock()
+        self._visited_lock: threading.Lock = threading.Lock()
+        self._results_lock: threading.Lock = threading.Lock()
+        self._delay_lock: threading.Lock = threading.Lock()
+        self._last_request_time: float = 0.0
         
         # Request parameters
-        self.user_agent = user_agent
-        self.max_retries = max_retries
-        self.timeout = timeout
-        self.delay = delay
+        self.user_agent: str = user_agent
+        self.max_retries: int = max_retries
+        self.timeout: int = timeout
+        self.delay: float = delay
         
         # Extract domain and path information for URL filtering
         parsed_url = urlparse(start_url)
-        self.base_domain = parsed_url.netloc
-        self.start_path = parsed_url.path
+        self.base_domain: str = parsed_url.netloc
+        self.start_path: str = parsed_url.path
         
         # If the URL ends with a trailing slash, keep it for proper path matching
         if not self.start_path.endswith('/') and self.start_path:
             self.start_path += '/'
         
         # For domain-only URLs (like example.com or example.com/), we'll crawl the whole site
-        self.crawl_entire_domain = not self.start_path or self.start_path == '/'
+        self.crawl_entire_domain: bool = not self.start_path or self.start_path == '/'
         
         # Initialize robots.txt handler if needed
-        self.robots_handler = RobotsHandler() if respect_robots else None
+        self.robots_handler: Optional[RobotsHandler] = RobotsHandler() if respect_robots else None
         if self.respect_robots:
             logger.info("Robots.txt handling enabled")
         else:
             logger.info("Robots.txt handling disabled")
             
         # Initialize extractors based on feature flags
-        self.image_extraction_enabled = enable_image_extraction
-        self.keyword_extraction_enabled = enable_keyword_extraction
-        self.table_extraction_enabled = enable_table_extraction
+        self.image_extraction_enabled: bool = enable_image_extraction
+        self.keyword_extraction_enabled: bool = enable_keyword_extraction
+        self.table_extraction_enabled: bool = enable_table_extraction
+        self.content_extraction_enabled: bool = enable_content_extraction
         
-        # Always enable content extraction for metadata, headings, etc.
-        self.content_extractor = ContentExtractor()
-        logger.info("Content extraction enabled")
+        # Initialize content extractor only if enabled
+        if self.content_extraction_enabled:
+            self.content_extractor: Optional[ContentExtractor] = ContentExtractor()
+            logger.info("Content extraction enabled")
+        else:
+            self.content_extractor: Optional[ContentExtractor] = None
+            logger.info("Content extraction disabled")
         
         if self.image_extraction_enabled:
-            self.image_extractor = ImageTagParser()
+            self.image_extractor: Optional[ImageTagParser] = ImageTagParser()
             logger.info("Image extraction enabled")
         else:
-            self.image_extractor = None
+            self.image_extractor: Optional[ImageTagParser] = None
             logger.info("Image extraction disabled")
             
         if self.keyword_extraction_enabled:
-            self.keyword_extractor = KeywordExtractor()
+            self.keyword_extractor: Optional[KeywordExtractor] = KeywordExtractor()
             logger.info("Keyword extraction enabled")
         else:
-            self.keyword_extractor = None
+            self.keyword_extractor: Optional[KeywordExtractor] = None
             logger.info("Keyword extraction disabled")
             
         if self.table_extraction_enabled:
@@ -117,7 +182,21 @@ class Crawler:
             logger.info("Table extraction disabled")
         
         # New attribute for same_path_only
-        self.same_path_only = same_path_only
+        self.same_path_only: bool = same_path_only
+        
+        # Initialize utilities
+        self.progress_tracker: Optional[ProgressTracker] = progress_tracker
+        self.url_filter: Optional[URLFilter] = url_filter
+        
+        # Initialize session manager
+        if session_manager:
+            self.session_manager: SessionManager = session_manager
+        else:
+            self.session_manager = SessionManager(
+                user_agent=user_agent,
+                timeout=timeout,
+                verify_ssl=True
+            )
         
         logger.info(f"Base domain extracted: {self.base_domain}")
         if self.same_path_only:
@@ -125,155 +204,151 @@ class Crawler:
                 logger.info(f"Crawling entire domain: {self.base_domain}")
             else:
                 logger.info(f"Restricting crawl to path: {self.start_path}")
+        
+        if self.progress_tracker:
+            logger.info("Progress tracking enabled")
+        if self.url_filter:
+            logger.info("Advanced URL filtering enabled")
+        
+        if self.max_queue_size:
+            logger.info(f"Queue size limit: {self.max_queue_size}")
+        
+        if self.max_workers > 1:
+            logger.info(f"Thread pool enabled with {self.max_workers} workers")
+        else:
+            logger.info("Single-threaded mode (no threading)")
+        
+        # Initialize page cache
+        self.page_cache: Optional[PageCache] = page_cache
+        if self.page_cache:
+            logger.info("Page caching enabled")
+        
+        # Initialize storage manager
+        if storage_manager:
+            self.storage_manager: StorageManager = storage_manager
+        else:
+            self.storage_manager = StorageManager(
+                store_html_content=store_html_content,
+                enable_disk_storage=False
+            )
+        
+        if not self.storage_manager.store_html_content:
+            logger.info("HTML content storage disabled (memory optimization)")
+        elif self.storage_manager.enable_disk_storage:
+            logger.info(f"Disk-based HTML storage enabled at {self.storage_manager.storage_dir}")
+        
+        # Initialize sitemap parser if sitemap support is enabled
+        self.use_sitemap = use_sitemap
+        self.sitemap_urls = sitemap_urls or []
+        self.sitemap_parser: Optional[SitemapParser] = None
+        if self.use_sitemap:
+            self.sitemap_parser = SitemapParser(timeout=self.timeout)
+            logger.info("Sitemap support enabled")
+        
+        # Initialize rate limiter for per-domain rate limiting
+        self.use_per_domain_delay = use_per_domain_delay
+        if rate_limiter:
+            self.rate_limiter: RateLimiter = rate_limiter
+        else:
+            self.rate_limiter = RateLimiter(default_delay=self.delay)
+        
+        if self.use_per_domain_delay:
+            logger.info("Per-domain rate limiting enabled")
+        
+        # Initialize content deduplicator
+        self.enable_content_deduplication = enable_content_deduplication
+        if content_deduplicator:
+            self.content_deduplicator: ContentDeduplicator = content_deduplicator
+        elif enable_content_deduplication:
+            self.content_deduplicator = ContentDeduplicator(enabled=True)
+        else:
+            self.content_deduplicator = ContentDeduplicator(enabled=False)
+        
+        if self.enable_content_deduplication or self.content_deduplicator.enabled:
+            logger.info("Content-based deduplication enabled")
 
-    def _extract_base_domain(self, url):
+    def _extract_base_domain(self, url: str) -> str:
         """Extract the base domain from a URL"""
         parsed_url = urlparse(url)
         # Return the domain without any subdomain/port
         return parsed_url.netloc
+    
+    def _discover_sitemaps(self, session) -> None:
+        """Discover and parse sitemaps to populate the queue"""
+        sitemap_urls_to_parse = []
+        
+        # Get sitemaps from robots.txt if available
+        if self.respect_robots and self.robots_handler:
+            try:
+                robots_sitemaps = get_sitemaps_from_robots(self.robots_handler, self.start_url)
+                sitemap_urls_to_parse.extend(robots_sitemaps)
+                if robots_sitemaps:
+                    logger.info(f"Found {len(robots_sitemaps)} sitemap(s) in robots.txt")
+            except Exception as e:
+                logger.warning(f"Error extracting sitemaps from robots.txt: {e}")
+        
+        # Add explicitly provided sitemap URLs
+        if self.sitemap_urls:
+            sitemap_urls_to_parse.extend(self.sitemap_urls)
+            logger.info(f"Using {len(self.sitemap_urls)} explicitly provided sitemap URL(s)")
+        
+        # Try common sitemap locations if no sitemaps found
+        if not sitemap_urls_to_parse:
+            parsed_url = urlparse(self.start_url)
+            common_sitemaps = [
+                f"{parsed_url.scheme}://{parsed_url.netloc}/sitemap.xml",
+                f"{parsed_url.scheme}://{parsed_url.netloc}/sitemap_index.xml",
+            ]
+            sitemap_urls_to_parse.extend(common_sitemaps)
+            logger.info("No sitemaps found, trying common locations")
+        
+        # Parse each sitemap and add URLs to queue
+        urls_added = 0
+        for sitemap_url in sitemap_urls_to_parse:
+            try:
+                url_info_list = self.sitemap_parser.parse_sitemap(sitemap_url, session)
+                for url_info in url_info_list:
+                    url = url_info['url']
+                    # Check if URL should be crawled
+                    if self._should_crawl(url):
+                        # Check queue size limit
+                        if self.max_queue_size and len(self.queue) >= self.max_queue_size:
+                            logger.warning(f"Queue size limit ({self.max_queue_size}) reached while adding sitemap URLs")
+                            break
+                        self.queue.append((url, 0))  # Sitemap URLs start at depth 0
+                        urls_added += 1
+                if urls_added > 0:
+                    logger.info(f"Added {urls_added} URLs from sitemap: {sitemap_url}")
+            except Exception as e:
+                logger.warning(f"Error parsing sitemap {sitemap_url}: {e}")
+                continue
+        
+        if urls_added > 0:
+            logger.info(f"Total URLs added from sitemaps: {urls_added}")
+        else:
+            logger.info("No URLs found in sitemaps or all URLs were filtered out")
 
-    def crawl(self):
+    def crawl(self) -> None:
         """Start the crawling process"""
+        # Start progress tracker if provided
+        if self.progress_tracker:
+            self.progress_tracker.start()
+        
+        # Get session from session manager
+        session = self.session_manager.get_sync_session()
+        
+        # Discover and parse sitemaps if enabled
+        if self.use_sitemap and self.sitemap_parser:
+            self._discover_sitemaps(session)
+        
         # Add the starting URL to the queue with depth 0
         self.queue.append((self.start_url, 0))
         
-        # Track last request time to implement delay between requests
-        last_request_time = 0
-        
-        while self.queue:
-            current_url, depth = self.queue.popleft()
-            
-            # Skip if we've already visited this URL
-            if current_url in self.visited_urls:
-                continue
-                
-            # Skip if we've exceeded the maximum depth
-            if depth > self.max_depth:
-                continue
-                
-            # Apply delay between requests if needed
-            if self.delay > 0:
-                current_time = time.time()
-                time_since_last_request = current_time - last_request_time
-                if time_since_last_request < self.delay:
-                    # Sleep for remaining time to satisfy the delay
-                    time.sleep(self.delay - time_since_last_request)
-            
-            logger.info(f"Crawling: {current_url} (depth: {depth})")
-            
-            # Initialize result data for this URL
-            self.results[current_url] = {
-                'depth': depth,
-                'status': None,
-                'headers': None,
-                'links': [],
-                'content_type': None,
-                'error': None,
-                'success': False
-            }
-            
-            # Update the last request time
-            last_request_time = time.time()
-            
-            # Fetch the page using our fetcher
-            success, response_or_error, status_code = fetch_page(
-                current_url, 
-                self.user_agent, 
-                self.max_retries, 
-                self.timeout
-            )
-            
-            # Record the HTTP status code
-            self.results[current_url]['status'] = status_code
-            
-            # Mark URL as visited regardless of success
-            self.visited_urls.add(current_url)
-            
-            # Update success flag based on fetch result
-            self.results[current_url]['success'] = success
-            
-            # Update success flag based on fetch result
-            self.results[current_url]['success'] = success
-            
-            if success:
-                response = response_or_error
-                
-                # Store response headers
-                self.results[current_url]['headers'] = dict(response.headers)
-                self.results[current_url]['content_type'] = response.headers.get('Content-Type')
-                
-                try:
-                    # Initialize links list for all URLs
-                    links = []
-                    
-                    # Process the page to extract links if it's HTML
-                    content_type = response.headers.get('Content-Type', '')
-                    if 'text/html' in content_type:
-                        # Store HTML content for extraction features (like tables)
-                        self.results[current_url]['html_content'] = response.text
-                        
-                        # Use ContentExtractor to extract all page metadata
-                        content_data = self.content_extractor.extract_content(response.text, current_url, response)
-                        
-                        # Merge content extractor results with page results
-                        self.results[current_url].update({
-                            'title': content_data.get('title'),
-                            'meta_description': content_data.get('meta_description'),
-                            'meta_keywords': content_data.get('meta_keywords'),
-                            'canonical_url': content_data.get('canonical_url'),
-                            'language': content_data.get('language'),
-                            'headings': content_data.get('headings'),
-                            'images_with_context': content_data.get('images_with_context'),
-                            'page_type': content_data.get('page_type'),
-                            'last_modified': content_data.get('last_modified')
-                        })
-                        logger.debug(f"Extracted metadata for {current_url}")
-                        
-                        # Extract links from HTML content
-                        links = extract_links(response.text, current_url, self.delay)
-                        logger.debug(f"Extracted {len(links)} links from HTML content at {current_url}")
-                        
-                        # Extract images from the page if extraction is enabled
-                        if self.image_extraction_enabled:
-                            images = self.image_extractor.extract_images(response.text)
-                            self.results[current_url]['images'] = images
-                            logger.debug(f"Extracted {len(images)} images from {current_url}")
-                        
-                        # Extract keywords from the page if extraction is enabled
-                        if self.keyword_extraction_enabled:
-                            keywords_data = self.keyword_extractor.extract_keywords(response.text, include_scores=True)
-                            self.results[current_url]['keywords'] = keywords_data['keywords']
-                            self.results[current_url]['keyword_scores'] = keywords_data['scores']
-                            keyphrases = self.keyword_extractor.extract_keyphrases(response.text)
-                            self.results[current_url]['keyphrases'] = keyphrases
-                            logger.debug(f"Extracted {len(keywords_data['keywords'])} keywords and {len(keyphrases)} keyphrases from {current_url}")
-                        
-                        # Extract tables from the page if extraction is enabled
-                        if self.table_extraction_enabled:
-                            try:
-                                tables = extract_tables(response.text, min_rows=1, min_columns=1)
-                                self.results[current_url]['tables'] = tables
-                                logger.debug(f"Extracted {len(tables)} tables from {current_url}")
-                            except Exception as e:
-                                logger.error(f"Error extracting tables from {current_url}: {e}")
-                                self.results[current_url]['tables'] = []
-                    else:
-                        logger.debug(f"Skipping content extraction for non-HTML content type: {content_type} at {current_url}")
-                    
-                    # Store the links in the results (even if empty for non-HTML content)
-                    self.results[current_url]['links'] = links
-                    
-                    # Add new links to the queue (will be empty for non-HTML content)
-                    for link in links:
-                        if self._should_crawl(link):
-                            self.queue.append((link, depth + 1))
-                except Exception as e:
-                    logger.error(f"Error processing {current_url}: {e}")
-                    self.results[current_url]['error'] = str(e)
-            else:
-                # Store the error information
-                logger.error(f"Failed to fetch {current_url}: {response_or_error}")
-                self.results[current_url]['error'] = response_or_error
+        # Use threading if max_workers > 1
+        if self.max_workers > 1:
+            self._crawl_with_threading(session)
+        else:
+            self._crawl_single_threaded(session)
         
         # Report skipped external URLs at the end
         if self.skipped_external_urls and self.internal_only:
@@ -292,8 +367,341 @@ class Crawler:
                     logger.debug(f"Skipped (robots.txt): {url}")
                 if len(skipped_paths) > 5:
                     logger.debug(f"... and {len(skipped_paths) - 5} more")
+        
+        # Finish progress tracking
+        if self.progress_tracker:
+            self.progress_tracker.finish()
     
-    def _should_crawl(self, url):
+    def _crawl_single_threaded(self, session) -> None:
+        """Single-threaded crawling (original implementation)"""
+        while self.queue:
+            # Check if paused
+            while self._paused:
+                time.sleep(0.1)  # Small sleep to avoid busy waiting
+            
+            current_url, depth = self.queue.popleft()
+            
+            # Skip if we've already visited this URL
+            if current_url in self.visited_urls:
+                continue
+                
+            # Skip if we've exceeded the maximum depth
+            if depth > self.max_depth:
+                continue
+            
+            # Rate limiting is handled in _process_url
+            # Process the URL
+            self._process_url(current_url, depth, session)
+    
+    def _crawl_with_threading(self, session) -> None:
+        """Multi-threaded crawling using ThreadPoolExecutor"""
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = {}
+            
+            while self.queue or futures:
+                # Check if paused
+                while self._paused:
+                    time.sleep(0.1)
+                
+                # Submit new tasks from queue
+                while len(futures) < self.max_workers:
+                    with self._queue_lock:
+                        if not self.queue:
+                            break
+                        current_url, depth = self.queue.popleft()
+                    
+                    # Check if already visited (thread-safe)
+                    with self._visited_lock:
+                        if current_url in self.visited_urls:
+                            continue
+                        if depth > self.max_depth:
+                            continue
+                    
+                    # Submit task to thread pool
+                    future = executor.submit(self._process_url, current_url, depth, session)
+                    futures[future] = (current_url, depth)
+                
+                # Process completed tasks
+                if futures:
+                    try:
+                        for future in as_completed(futures, timeout=0.1):
+                            if future in futures:
+                                try:
+                                    future.result()  # Get result to raise any exceptions
+                                except Exception as e:
+                                    url, depth = futures[future]
+                                    logger.error(f"Error in thread processing {url}: {e}")
+                                finally:
+                                    del futures[future]
+                                    break
+                    except TimeoutError:
+                        # Some futures are still running, continue loop
+                        pass
+    
+    def _process_url(self, url: str, depth: int, session) -> None:
+        """Process a single URL (thread-safe)"""
+        # Apply per-domain rate limiting if enabled
+        if self.use_per_domain_delay:
+            # Check for crawl-delay from robots.txt if available
+            if self.respect_robots and self.robots_handler:
+                try:
+                    crawl_delay = self.robots_handler.get_crawl_delay(url, self.user_agent)
+                    if crawl_delay is not None:
+                        domain = urlparse(url).netloc.lower()
+                        self.rate_limiter.set_domain_delay(domain, crawl_delay)
+                        logger.debug(f"Using crawl-delay {crawl_delay}s from robots.txt for {domain}")
+                except Exception as e:
+                    logger.debug(f"Could not get crawl-delay from robots.txt: {e}")
+            
+            # Wait if needed for this domain
+            self.rate_limiter.wait_if_needed(url)
+        else:
+            # Apply global delay between requests if needed (thread-safe)
+            if self.delay > 0:
+                with self._delay_lock:
+                    current_time = time.time()
+                    time_since_last_request = current_time - self._last_request_time
+                    if time_since_last_request < self.delay:
+                        time.sleep(self.delay - time_since_last_request)
+                    self._last_request_time = time.time()
+        
+        logger.info(f"Crawling: {url} (depth: {depth})")
+        
+        # Initialize result data for this URL (thread-safe)
+        with self._results_lock:
+            self.results[url] = {
+                'depth': depth,
+                'status': None,
+                'headers': None,
+                'links': [],
+                'content_type': None,
+                'error': None,
+                'success': False
+            }
+        
+        # Check cache first
+        cached_data = None
+        if self.page_cache:
+            cached_data = self.page_cache.get(url)
+        
+        if cached_data:
+            # Use cached data
+            logger.debug(f"Using cached data for {url}")
+            status_code = cached_data.get('status_code', 200)
+            headers = cached_data.get('headers', {})
+            response_data = cached_data.get('response_data', {})
+            content = cached_data.get('content')
+            
+            success = status_code == 200
+            
+            with self._results_lock:
+                self.results[url]['status'] = status_code
+                self.results[url]['success'] = success
+                self.results[url]['headers'] = headers
+                self.results[url]['content_type'] = headers.get('Content-Type', '')
+            
+            # Mark URL as visited (thread-safe)
+            with self._visited_lock:
+                if url in self.visited_urls:
+                    return  # Already processed by another thread
+                self.visited_urls.add(url)
+            
+            # Process cached content similar to fresh fetch
+            if success and content and 'text/html' in headers.get('Content-Type', ''):
+                # Process cached HTML content
+                self._process_cached_content(url, depth, content, headers)
+            return
+        
+        # Fetch the page using our fetcher with session
+        success, response_or_error, status_code = fetch_page(
+            url, 
+            self.user_agent, 
+            self.max_retries, 
+            self.timeout,
+            session=session
+        )
+        
+        # Mark URL as visited (thread-safe)
+        with self._visited_lock:
+            if url in self.visited_urls:
+                return  # Already processed by another thread
+            self.visited_urls.add(url)
+        
+        # Update results (thread-safe)
+        with self._results_lock:
+            self.results[url]['status'] = status_code
+            self.results[url]['success'] = success
+        
+        if success:
+            response = response_or_error
+            
+            # Store response headers
+            headers = dict(response.headers)
+            content_type = headers.get('Content-Type', '')
+            
+            with self._results_lock:
+                self.results[url]['headers'] = headers
+                self.results[url]['content_type'] = content_type
+            
+            # Cache will be updated after HTML content is processed
+            
+            try:
+                # Initialize links list for all URLs
+                links = []
+                
+                # Process the page to extract links if it's HTML
+                if 'text/html' in content_type:
+                    html_content = response.text
+                    
+                    # Check for duplicate content
+                    if self.content_deduplicator.enabled:
+                        if self.content_deduplicator.is_duplicate(html_content, url):
+                            logger.info(f"Skipping duplicate content at {url}")
+                            duplicate_urls = self.content_deduplicator.get_duplicate_urls(url)
+                            with self._results_lock:
+                                self.results[url]['duplicate'] = True
+                                if duplicate_urls:
+                                    self.results[url]['duplicate_of'] = list(duplicate_urls)
+                            
+                            # Still record progress but mark as duplicate
+                            if self.progress_tracker:
+                                self.progress_tracker.record_url(
+                                    url,
+                                    True,
+                                    links_found=0,
+                                    depth=depth,
+                                    metadata={'duplicate': True}
+                                )
+                            return  # Skip processing duplicate content
+                    
+                    # Store HTML content using storage manager
+                    stored_html = self.storage_manager.store_html(url, html_content)
+                    if stored_html is not None:
+                        with self._results_lock:
+                            self.results[url]['html_content'] = stored_html
+                    
+                    # Use ContentExtractor to extract all page metadata if enabled
+                    if self.content_extraction_enabled and self.content_extractor:
+                        content_data = self.content_extractor.extract_content(html_content, url, response)
+                        
+                        # Merge content extractor results with page results
+                        with self._results_lock:
+                            self.results[url].update({
+                                'title': content_data.get('title'),
+                                'meta_description': content_data.get('meta_description'),
+                                'meta_keywords': content_data.get('meta_keywords'),
+                                'canonical_url': content_data.get('canonical_url'),
+                                'language': content_data.get('language'),
+                                'headings': content_data.get('headings'),
+                                'images_with_context': content_data.get('images_with_context'),
+                                'page_type': content_data.get('page_type'),
+                                'last_modified': content_data.get('last_modified')
+                            })
+                        logger.debug(f"Extracted metadata for {url}")
+                    
+                    # Extract links from HTML content
+                    links = extract_links(html_content, url, self.delay)
+                    logger.debug(f"Extracted {len(links)} links from HTML content at {url}")
+                    
+                    # Extract images from the page if extraction is enabled
+                    if self.image_extraction_enabled:
+                        images = self.image_extractor.extract_images(html_content)
+                        with self._results_lock:
+                            self.results[url]['images'] = images
+                        logger.debug(f"Extracted {len(images)} images from {url}")
+                    
+                    # Extract keywords from the page if extraction is enabled
+                    if self.keyword_extraction_enabled:
+                        keywords_data = self.keyword_extractor.extract_keywords(html_content, include_scores=True)
+                        keyphrases = self.keyword_extractor.extract_keyphrases(html_content)
+                        with self._results_lock:
+                            self.results[url]['keywords'] = keywords_data['keywords']
+                            self.results[url]['keyword_scores'] = keywords_data['scores']
+                            self.results[url]['keyphrases'] = keyphrases
+                        logger.debug(f"Extracted {len(keywords_data['keywords'])} keywords and {len(keyphrases)} keyphrases from {url}")
+                    
+                    # Extract tables from the page if extraction is enabled
+                    if self.table_extraction_enabled:
+                        try:
+                            tables = extract_tables(html_content, min_rows=1, min_columns=1)
+                            with self._results_lock:
+                                self.results[url]['tables'] = tables
+                            logger.debug(f"Extracted {len(tables)} tables from {url}")
+                        except Exception as e:
+                            logger.error(f"Error extracting tables from {url}: {e}")
+                            with self._results_lock:
+                                self.results[url]['tables'] = []
+                    
+                    # Cache the response if cache is enabled
+                    if self.page_cache:
+                        self.page_cache.set(
+                            url,
+                            self.results[url],
+                            status_code,
+                            headers,
+                            html_content
+                        )
+                else:
+                    logger.debug(f"Skipping content extraction for non-HTML content type: {content_type} at {url}")
+                
+                # Store the links in the results (even if empty for non-HTML content)
+                with self._results_lock:
+                    self.results[url]['links'] = links
+                
+                # Record progress for successful URL
+                if self.progress_tracker:
+                    with self._results_lock:
+                        images_count = len(self.results[url].get('images', []))
+                        keywords_count = len(self.results[url].get('keywords', []))
+                        tables_count = len(self.results[url].get('tables', []))
+                    self.progress_tracker.record_url(
+                        url,
+                        True,
+                        links_found=len(links),
+                        depth=depth,
+                        metadata={
+                            'images': images_count,
+                            'keywords': keywords_count,
+                            'tables': tables_count
+                        }
+                    )
+                
+                # Add new links to the queue (thread-safe)
+                for link in links:
+                    if self._should_crawl(link):
+                        with self._queue_lock:
+                            # Check queue size limit
+                            if self.max_queue_size and len(self.queue) >= self.max_queue_size:
+                                logger.warning(f"Queue size limit ({self.max_queue_size}) reached, skipping URL: {link}")
+                                continue
+                            self.queue.append((link, depth + 1))
+            except Exception as e:
+                logger.error(f"Error processing {url}: {e}")
+                with self._results_lock:
+                    self.results[url]['error'] = str(e)
+                # Record progress for failed URL
+                if self.progress_tracker:
+                    self.progress_tracker.record_url(
+                        url,
+                        False,
+                        links_found=0,
+                        depth=depth
+                    )
+        else:
+            # Store the error information
+            logger.error(f"Failed to fetch {url}: {response_or_error}")
+            with self._results_lock:
+                self.results[url]['error'] = response_or_error
+            # Record progress for failed URL
+            if self.progress_tracker:
+                self.progress_tracker.record_url(
+                    url,
+                    False,
+                    links_found=0,
+                    depth=depth
+                )
+    
+    def _should_crawl(self, url: str) -> bool:
         """Determine if a URL should be crawled based on settings"""
         # Check if URL is already visited
         if url in self.visited_urls:
@@ -324,23 +732,28 @@ class Crawler:
                 logger.debug(f"Skipping URL disallowed by robots.txt: {url}")
                 return False
         
+        # Check URL filter if provided
+        if self.url_filter and not self.url_filter.is_allowed(url):
+            logger.debug(f"Skipping URL blocked by URLFilter: {url}")
+            return False
+        
         return True
         
-    def get_results(self):
+    def get_results(self) -> Dict[str, Dict[str, Any]]:
         """Return the detailed crawl results"""
         return self.results
         
-    def get_skipped_external_urls(self):
+    def get_skipped_external_urls(self) -> List[str]:
         """Return the list of skipped external URLs"""
         return list(self.skipped_external_urls)
         
-    def get_skipped_robots_paths(self):
+    def get_skipped_robots_paths(self) -> List[str]:
         """Return the list of URLs skipped due to robots.txt rules"""
         if self.robots_handler:
             return self.robots_handler.get_skipped_paths()
         return []
     
-    def is_valid_url(self, url):
+    def is_valid_url(self, url: str) -> bool:
         """Check if the URL should be crawled based on crawler settings"""
         # Check if URL is already processed or queued
         if url in self.visited_urls or url in self.queue:
@@ -363,7 +776,7 @@ class Crawler:
 
         return True
 
-    def _extract_links(self, url, soup):
+    def _extract_links(self, url: str, soup: Any) -> List[str]:
         """Extract all links from the page"""
         links = []
         for link in soup.find_all('a', href=True):
@@ -401,3 +814,188 @@ class Crawler:
             links.append(href)
         
         return links
+    
+    def pause(self) -> None:
+        """Pause the crawling process."""
+        self._paused = True
+        logger.info("Crawling paused")
+    
+    def resume(self) -> None:
+        """Resume the crawling process."""
+        self._paused = False
+        logger.info("Crawling resumed")
+    
+    def is_paused(self) -> bool:
+        """Check if crawling is paused."""
+        return self._paused
+    
+    def save_state(self, filepath: str) -> None:
+        """
+        Save the current crawler state to a file.
+        
+        Args:
+            filepath: Path to save the state file
+        """
+        metadata = {
+            'start_url': self.start_url,
+            'max_depth': self.max_depth,
+            'internal_only': self.internal_only,
+            'respect_robots': self.respect_robots,
+            'max_queue_size': self.max_queue_size
+        }
+        QueueManager.save_state(
+            self.queue,
+            self.visited_urls,
+            self.results,
+            filepath,
+            metadata
+        )
+    
+    def load_state(self, filepath: str) -> None:
+        """
+        Load crawler state from a file.
+        
+        Args:
+            filepath: Path to the state file
+        """
+        self.queue, self.visited_urls, self.results, metadata = QueueManager.load_state(filepath)
+        
+        # Optionally restore metadata
+        if metadata:
+            logger.info(f"Loaded state metadata: {metadata}")
+    
+    def get_queue_stats(self) -> Dict[str, Any]:
+        """
+        Get statistics about the current queue.
+        
+        Returns:
+            Dictionary with queue statistics
+        """
+        return QueueManager.get_queue_stats(self.queue)
+    
+    def _process_cached_content(self, url: str, depth: int, content: str, headers: Dict[str, Any]) -> None:
+        """Process cached HTML content (similar to fresh fetch processing)"""
+        try:
+            links = []
+            
+            # Store HTML content using storage manager
+            stored_html = self.storage_manager.store_html(url, content)
+            if stored_html is not None:
+                with self._results_lock:
+                    self.results[url]['html_content'] = stored_html
+            
+            # Use ContentExtractor to extract all page metadata if enabled
+            if self.content_extraction_enabled and self.content_extractor:
+                # Content extractor can work without response object
+                content_data = self.content_extractor.extract_content(content, url, None)
+                
+                # Merge content extractor results with page results
+                with self._results_lock:
+                    self.results[url].update({
+                        'title': content_data.get('title'),
+                        'meta_description': content_data.get('meta_description'),
+                        'meta_keywords': content_data.get('meta_keywords'),
+                        'canonical_url': content_data.get('canonical_url'),
+                        'language': content_data.get('language'),
+                        'headings': content_data.get('headings'),
+                        'images_with_context': content_data.get('images_with_context'),
+                        'page_type': content_data.get('page_type'),
+                        'last_modified': content_data.get('last_modified')
+                    })
+                logger.debug(f"Extracted metadata from cache for {url}")
+            
+            # Extract links from HTML content
+            links = extract_links(content, url, self.delay)
+            logger.debug(f"Extracted {len(links)} links from cached HTML content at {url}")
+            
+            # Extract images from the page if extraction is enabled
+            if self.image_extraction_enabled:
+                images = self.image_extractor.extract_images(content)
+                with self._results_lock:
+                    self.results[url]['images'] = images
+                logger.debug(f"Extracted {len(images)} images from cached {url}")
+            
+            # Extract keywords from the page if extraction is enabled
+            if self.keyword_extraction_enabled:
+                keywords_data = self.keyword_extractor.extract_keywords(content, include_scores=True)
+                keyphrases = self.keyword_extractor.extract_keyphrases(content)
+                with self._results_lock:
+                    self.results[url]['keywords'] = keywords_data['keywords']
+                    self.results[url]['keyword_scores'] = keywords_data['scores']
+                    self.results[url]['keyphrases'] = keyphrases
+                logger.debug(f"Extracted {len(keywords_data['keywords'])} keywords and {len(keyphrases)} keyphrases from cached {url}")
+            
+            # Extract tables from the page if extraction is enabled
+            if self.table_extraction_enabled:
+                try:
+                    tables = extract_tables(content, min_rows=1, min_columns=1)
+                    with self._results_lock:
+                        self.results[url]['tables'] = tables
+                    logger.debug(f"Extracted {len(tables)} tables from cached {url}")
+                except Exception as e:
+                    logger.error(f"Error extracting tables from cached {url}: {e}")
+                    with self._results_lock:
+                        self.results[url]['tables'] = []
+            
+            # Store the links in the results
+            with self._results_lock:
+                self.results[url]['links'] = links
+            
+            # Record progress for successful URL
+            if self.progress_tracker:
+                with self._results_lock:
+                    images_count = len(self.results[url].get('images', []))
+                    keywords_count = len(self.results[url].get('keywords', []))
+                    tables_count = len(self.results[url].get('tables', []))
+                self.progress_tracker.record_url(
+                    url,
+                    True,
+                    links_found=len(links),
+                    depth=depth,
+                    metadata={
+                        'images': images_count,
+                        'keywords': keywords_count,
+                        'tables': tables_count
+                    }
+                )
+            
+            # Add new links to the queue (thread-safe)
+            for link in links:
+                if self._should_crawl(link):
+                    with self._queue_lock:
+                        # Check queue size limit
+                        if self.max_queue_size and len(self.queue) >= self.max_queue_size:
+                            logger.warning(f"Queue size limit ({self.max_queue_size}) reached, skipping URL: {link}")
+                            continue
+                        self.queue.append((link, depth + 1))
+        except Exception as e:
+            logger.error(f"Error processing cached content for {url}: {e}")
+            with self._results_lock:
+                self.results[url]['error'] = str(e)
+    
+    def resume_from(self, filepath: str) -> None:
+        """
+        Resume crawling from a saved state file.
+        
+        Args:
+            filepath: Path to the saved state file
+        """
+        if not CrawlResume.can_resume(filepath):
+            raise ValueError(f"Cannot resume from {filepath}: file not found or invalid")
+        
+        resume_info = CrawlResume.get_resume_info(filepath)
+        logger.info(f"Resuming crawl from {filepath}")
+        logger.info(f"  - Saved at: {resume_info.get('saved_at')}")
+        logger.info(f"  - Queue size: {resume_info.get('queue_size')}")
+        logger.info(f"  - Visited URLs: {resume_info.get('visited_count')}")
+        logger.info(f"  - Results: {resume_info.get('results_count')}")
+        
+        # Load the state
+        self.load_state(filepath)
+        
+        # Continue crawling
+        session = self.session_manager.get_sync_session()
+        if self.max_workers > 1:
+            self._crawl_with_threading(session)
+        else:
+            self._crawl_single_threaded(session)
