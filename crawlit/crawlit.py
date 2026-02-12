@@ -95,6 +95,43 @@ def parse_args():
     parser.add_argument("--detect-page-type", action="store_true", default=False,
                         help="Auto-detect page type based on URL patterns")
     
+    # JavaScript rendering options
+    parser.add_argument("--use-js", "--javascript", action="store_true", default=False,
+                        help="Enable JavaScript rendering for SPAs and JS-heavy websites (requires Playwright)")
+    parser.add_argument("--js-browser", default="chromium", choices=["chromium", "firefox", "webkit"],
+                        help="Browser type for JavaScript rendering")
+    parser.add_argument("--js-wait-selector", default=None,
+                        help="CSS selector to wait for when using JS rendering")
+    parser.add_argument("--js-wait-timeout", type=int, default=None,
+                        help="Additional timeout (ms) to wait after page load when using JS rendering")
+    
+    # Proxy support options
+    parser.add_argument("--proxy", default=None,
+                        help="Single proxy to use (format: http://host:port or socks5://host:port)")
+    parser.add_argument("--proxy-file", default=None,
+                        help="File containing list of proxies (one per line)")
+    parser.add_argument("--proxy-rotation", default="round-robin", 
+                        choices=["round-robin", "random", "least-used", "best-performance"],
+                        help="Proxy rotation strategy when using proxy file")
+    
+    # Database integration options
+    parser.add_argument("--database", "--db", default=None, choices=["sqlite", "postgresql", "mongodb"],
+                        help="Database backend to store crawl results")
+    parser.add_argument("--db-path", default="crawl_results.db",
+                        help="Database file path (for SQLite)")
+    parser.add_argument("--db-host", default="localhost",
+                        help="Database host (for PostgreSQL/MongoDB)")
+    parser.add_argument("--db-port", type=int, default=None,
+                        help="Database port (default: 5432 for PostgreSQL, 27017 for MongoDB)")
+    parser.add_argument("--db-name", default="crawlit",
+                        help="Database name (for PostgreSQL/MongoDB)")
+    parser.add_argument("--db-user", default="postgres",
+                        help="Database username (for PostgreSQL)")
+    parser.add_argument("--db-password", default="",
+                        help="Database password (for PostgreSQL/MongoDB)")
+    parser.add_argument("--db-collection", default="results",
+                        help="Collection name (for MongoDB)")
+    
     return parser.parse_args()
     
 
@@ -113,6 +150,24 @@ def main():
         # Log common setup info
         logger.info(f"Starting crawl from: {args.url}")
         logger.info(f"Domain restriction is {'disabled' if args.allow_external else 'enabled'}")
+        
+        # Setup proxy if provided
+        proxy_manager = None
+        proxy = args.proxy if hasattr(args, 'proxy') else None
+        
+        if hasattr(args, 'proxy_file') and args.proxy_file:
+            # Load proxies from file
+            logger.info(f"Loading proxies from file: {args.proxy_file}")
+            from crawlit.utils.proxy_manager import ProxyManager
+            proxy_manager = ProxyManager(rotation_strategy=args.proxy_rotation)
+            try:
+                count = proxy_manager.load_from_file(args.proxy_file)
+                logger.info(f"Loaded {count} proxies with {args.proxy_rotation} rotation")
+            except Exception as e:
+                logger.error(f"Failed to load proxies: {e}")
+                return
+        elif proxy:
+            logger.info(f"Using single proxy: {proxy}")
         
         # Determine whether to use async crawling
         if getattr(args, 'async', False):
@@ -134,7 +189,13 @@ def main():
                     enable_image_extraction=args.extract_images,
                     enable_keyword_extraction=args.extract_keywords,
                     enable_table_extraction=args.extract_tables,
-                    max_concurrent_requests=args.concurrency
+                    max_concurrent_requests=args.concurrency,
+                    use_js_rendering=args.use_js,
+                    js_browser_type=args.js_browser,
+                    js_wait_for_selector=args.js_wait_selector,
+                    js_wait_for_timeout=args.js_wait_timeout,
+                    proxy=proxy,
+                    proxy_manager=proxy_manager
                 )
                 
                 # Run the crawler in the current event loop
@@ -155,7 +216,13 @@ def main():
                 respect_robots=not args.ignore_robots,  # Invert the ignore-robots flag
                 enable_image_extraction=args.extract_images,
                 enable_keyword_extraction=args.extract_keywords,
-                enable_table_extraction=args.extract_tables
+                enable_table_extraction=args.extract_tables,
+                use_js_rendering=args.use_js,
+                js_browser_type=args.js_browser,
+                js_wait_for_selector=args.js_wait_selector,
+                js_wait_for_timeout=args.js_wait_timeout,
+                proxy=proxy,
+                proxy_manager=proxy_manager
             )
             
             # Start crawling
@@ -257,6 +324,70 @@ def main():
             skipped = crawler.get_skipped_external_urls()
             if skipped:
                 logger.info(f"Skipped {len(skipped)} external URLs (use --allow-external to crawl them)")
+        
+        # Save results to database if specified
+        if args.database:
+            logger.info(f"Checking {args.database} database availability...")
+            from crawlit.utils.database import get_database_backend
+            
+            # Build database configuration
+            db_config = {}
+            if args.database == 'sqlite':
+                db_config['database_path'] = args.db_path
+            elif args.database == 'postgresql':
+                db_config['host'] = args.db_host
+                db_config['port'] = args.db_port if args.db_port else 5432
+                db_config['database'] = args.db_name
+                db_config['user'] = args.db_user
+                db_config['password'] = args.db_password
+            elif args.database == 'mongodb':
+                db_config['host'] = args.db_host
+                db_config['port'] = args.db_port if args.db_port else 27017
+                db_config['database'] = args.db_name
+                db_config['collection'] = args.db_collection
+                if args.db_user:
+                    db_config['username'] = args.db_user
+                if args.db_password:
+                    db_config['password'] = args.db_password
+            
+            try:
+                # check_setup=True by default, will raise RuntimeError if not available
+                db = get_database_backend(args.database, **db_config)
+                
+                logger.info(f"Saving results to {args.database} database...")
+                
+                # Prepare metadata
+                metadata = {
+                    'start_url': args.url,
+                    'max_depth': args.depth,
+                    'user_agent': args.user_agent,
+                    'internal_only': not args.allow_external,
+                    'respect_robots': not args.ignore_robots,
+                    'js_rendering': args.use_js,
+                }
+                
+                crawl_id = db.save_results(results, metadata)
+                logger.info(f"✓ Saved {len(results)} pages to {args.database} database (crawl_id: {crawl_id})")
+                db.disconnect()
+                
+            except RuntimeError as e:
+                # Database not available or not properly set up
+                logger.error("\n" + "="*60)
+                logger.error("DATABASE SETUP REQUIRED")
+                logger.error("="*60)
+                # The error message already contains setup instructions
+                logger.error(str(e))
+                logger.error("="*60 + "\n")
+                logger.warning("Continuing with file output only...")
+                
+            except ImportError as e:
+                logger.error(f"\nDatabase backend not available: {e}")
+                logger.error(f"Install with: pip install crawlit[{args.database}]\n")
+                logger.warning("Continuing with file output only...")
+                
+            except Exception as e:
+                logger.error(f"\nFailed to save to database: {e}")
+                logger.warning("Continuing with file output only...")
         
         # Save results to file in the specified format
         output_path = save_results(results, args.output_format, args.output, args.pretty_json)

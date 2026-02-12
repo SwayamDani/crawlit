@@ -264,6 +264,46 @@ class SessionManager:
             return dict(self._sync_session.cookies)
         return self._initial_cookies.copy()
     
+    def save_cookies(self, filepath: str, format: str = 'json') -> None:
+        """
+        Save current session cookies to file.
+        
+        Args:
+            filepath: Path to save cookies
+            format: Format ('json' or 'pickle')
+        """
+        from .cookie_persistence import save_cookies
+        
+        cookies = self.get_cookies()
+        if cookies:
+            save_cookies(cookies, filepath, format)
+            logger.info(f"Saved {len(cookies)} cookies to {filepath}")
+        else:
+            logger.warning("No cookies to save")
+    
+    def load_cookies(self, filepath: str, format: str = 'auto') -> None:
+        """
+        Load cookies from file into session.
+        
+        Args:
+            filepath: Path to load cookies from
+            format: Format ('json', 'pickle', or 'auto')
+        """
+        from .cookie_persistence import load_cookies
+        
+        jar = load_cookies(filepath, format)
+        cookies = jar.to_requests_cookies()
+        
+        # Update initial cookies
+        self._initial_cookies.update(cookies)
+        
+        # Update existing sync session if it exists
+        if self._sync_session:
+            for name, value in cookies.items():
+                self._sync_session.cookies.set(name, value)
+        
+        logger.info(f"Loaded {len(cookies)} cookies from {filepath}")
+    
     def close_sync_session(self) -> None:
         """Close the synchronous session."""
         if self._sync_session:

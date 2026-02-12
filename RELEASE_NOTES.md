@@ -6,6 +6,92 @@ We are excited to announce version 0.2.0 of Crawlit with major enhancements and 
 
 ### 🎉 Major New Features
 
+#### Advanced Extraction Features (NEW in 0.2.0)
+- **Form Detection & Extraction**: Comprehensive form analysis with intelligent field detection
+  - All form attributes (action, method, enctype, id, class, name)
+  - All field types (text, email, password, select, textarea, radio, checkbox, file, etc.)
+  - Label association (explicit via 'for' attribute and implicit parent labels)
+  - Field attributes (required, readonly, disabled, maxlength, pattern, placeholder)
+  - Special feature detection (CSRF tokens, file uploads, CAPTCHA)
+  - Heuristic detection (login forms, search forms, contact forms)
+  - Submit button text extraction
+  - Fieldset extraction
+- **Structured Data Extraction**: Extract rich semantic data from web pages
+  - **JSON-LD**: Schema.org markup (recommended by Google)
+  - **Microdata**: HTML5 embedded structured data
+  - **RDFa**: Resource Description Framework in Attributes
+  - **Open Graph Protocol**: Facebook/social media metadata
+  - **Twitter Cards**: Twitter-specific metadata
+  - Schema.org type detection and filtering
+  - Nested item support
+  - Multiple formats on same page
+- **Advanced Language Detection**: Multi-method language identification
+  - 6 detection methods: HTML lang, meta tags, URL patterns, character analysis, common words, title/meta
+  - Support for 15+ languages (en, es, fr, de, it, pt, nl, ru, ja, zh, ar, pl, tr, sv, ko, etc.)
+  - Character-based detection for non-Latin scripts (Japanese, Arabic, Russian, Chinese, Korean, etc.)
+  - Common words frequency analysis
+  - Weighted voting algorithm for high accuracy
+  - Confidence scoring (0.0 to 1.0)
+  - Multilingual page detection
+
+#### Security Features (NEW in 0.2.0)
+- **CSRF Token Handling**: Automatic extraction and management of CSRF tokens from forms, meta tags, and JavaScript
+  - Support for 10+ frameworks (Django, Rails, ASP.NET, WordPress, Laravel, Drupal, etc.)
+  - Automatic token inclusion in POST requests and headers
+  - Global and per-URL token management
+  - Statistics and monitoring
+- **Security Headers Analysis**: Comprehensive analysis of 10+ security headers with ratings
+  - HSTS, CSP, X-Frame-Options, X-Content-Type-Options, and more
+  - Security ratings from A+ (Excellent) to F (Critical)
+  - Vulnerability detection and specific recommendations
+  - Detailed header-by-header analysis
+- **WAF Detection**: Detect 17+ Web Application Firewalls
+  - Cloudflare, AWS WAF, Akamai, Incapsula, ModSecurity, F5 BIG-IP, and more
+  - Multi-method detection (headers, cookies, body patterns, server signatures)
+  - Confidence scoring and detailed indicators
+  - Adaptive crawling recommendations
+- **Honeypot Detection**: Identify and avoid honeypot traps
+  - 7 detection methods (invisible, hidden, off-screen, transparent, zero-dimension, etc.)
+  - Risk level assessment (High, Medium, Low, None)
+  - Confidence scoring for each detected honeypot
+  - Actionable recommendations to avoid detection
+
+#### Distributed Crawling & Performance (NEW in 0.2.0)
+- **Message Queue Integration**: RabbitMQ and Apache Kafka support for distributed task management
+- **Distributed Crawler**: Scale crawling across multiple machines and processes
+- **Worker Pools**: Concurrent task processing with configurable worker count
+- **Connection Pooling**: Reuse database and HTTP connections for 5-10x performance improvement
+- **Automatic Scaling**: Dynamic worker management and load distribution
+- **Fault Tolerance**: Task persistence, auto-recovery, and retry mechanisms
+- **Enterprise Scale**: Handle thousands of URLs per second
+- **Multi-Machine Support**: Deploy coordinator and workers on separate servers
+- **Real-Time Monitoring**: Track progress, statistics, and worker health
+
+#### Database Integration (NEW in 0.2.0)
+- **Multiple Database Backends**: Built-in support for SQLite, PostgreSQL, and MongoDB
+- **SQLite**: Zero-configuration database perfect for local development (no external dependencies)
+- **PostgreSQL**: Production-ready relational database with ACID compliance and advanced querying
+- **MongoDB**: Flexible document storage for unstructured/semi-structured data
+- **Query Support**: Filter results by URL, status code, success/failure, crawl ID
+- **Metadata Tracking**: Store crawl configuration, statistics, and custom metadata
+- **Crawl History**: Track multiple crawl sessions with timestamps and statistics
+- **Easy Cleanup**: Delete specific crawls or clear all data
+- **CLI Support**: Full command-line interface support with `--database` flag
+- **Factory Pattern**: Flexible backend selection via configuration
+
+#### JavaScript Rendering (NEW in 0.2.0)
+- **Full SPA Support**: Crawl Single Page Applications built with React, Vue, Angular, Svelte, and more
+- **Playwright Integration**: Support for Chromium, Firefox, and Webkit browser engines
+- **Smart Waiting**: Wait for specific selectors or timeouts to ensure content is fully loaded
+- **Sync & Async Support**: Works with both synchronous and asynchronous crawlers
+- **Configurable Browsers**: Choose between different browser engines for testing
+- **Headless Mode**: Fast, resource-efficient crawling with headless browsers
+- **CLI Support**: Full command-line interface support with `--use-js` flag
+
+#### Reliability & Performance
+- **Exponential Backoff**: Intelligent retry logic with exponential backoff (2^retry, capped at 32s) for failed requests
+- **Configurable Retries**: Customizable retry attempts with smart failure handling
+
 #### Content Extraction (Initial 0.2.0 Features)
 - **Image Extraction**: Extract and analyze images including metadata, dimensions, and accessibility information
   - New `image_extractor.py` module with `ImageTagParser` class
@@ -141,6 +227,23 @@ crawler = Crawler(
     start_url="https://example.com",
     enable_content_extraction=True  # Enable if needed
 )
+```
+
+**JavaScript Rendering (NEW):**
+For Single Page Applications and JavaScript-heavy sites:
+```python
+crawler = Crawler(
+    start_url="https://react-app.com",
+    use_js_rendering=True,  # Enable JavaScript rendering
+    js_browser_type="chromium",  # chromium, firefox, or webkit
+    js_wait_for_selector="#root"  # Optional: wait for specific element
+)
+```
+
+Install Playwright for JavaScript rendering:
+```bash
+pip install playwright
+python -m playwright install chromium
 ```
 
 **Rate Limiting:**

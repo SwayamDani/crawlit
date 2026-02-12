@@ -15,6 +15,14 @@ from urllib.parse import urlparse, urljoin
 from .fetcher import fetch_page
 from .parser import extract_links
 from .robots import RobotsHandler
+
+# Check if Playwright is available for JavaScript rendering
+try:
+    from .js_renderer import JavaScriptRenderer, is_playwright_available
+    PLAYWRIGHT_AVAILABLE = is_playwright_available()
+except ImportError:
+    PLAYWRIGHT_AVAILABLE = False
+    JavaScriptRenderer = None
 from ..extractors.image_extractor import ImageTagParser
 from ..extractors.keyword_extractor import KeywordExtractor
 from ..extractors.tables import extract_tables
@@ -28,6 +36,7 @@ from ..utils.storage import StorageManager
 from ..utils.sitemap import SitemapParser, get_sitemaps_from_robots
 from ..utils.rate_limiter import RateLimiter
 from ..utils.deduplication import ContentDeduplicator
+from ..utils.budget_tracker import BudgetTracker
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +83,14 @@ class Crawler:
         rate_limiter: Optional[RateLimiter] = None,
         use_per_domain_delay: bool = True,
         content_deduplicator: Optional[ContentDeduplicator] = None,
-        enable_content_deduplication: bool = False
+        enable_content_deduplication: bool = False,
+        use_js_rendering: bool = False,
+        js_wait_for_selector: Optional[str] = None,
+        js_wait_for_timeout: Optional[int] = None,
+        js_browser_type: str = "chromium",
+        proxy: Optional[str] = None,
+        proxy_manager: Optional['ProxyManager'] = None,
+        budget_tracker: Optional[BudgetTracker] = None
     ) -> None:
         """Initialize the crawler with given parameters.
         
@@ -101,6 +117,10 @@ class Crawler:
             store_html_content (bool, optional): Whether to store HTML content in results. Defaults to True.
             use_sitemap (bool, optional): Whether to discover and use sitemaps for URL discovery. Defaults to False.
             sitemap_urls (List[str], optional): Explicit list of sitemap URLs to parse. If not provided, will try to discover from robots.txt or common locations.
+            use_js_rendering (bool, optional): Whether to use JavaScript rendering (Playwright) for SPAs and JS-heavy sites. Defaults to False.
+            js_wait_for_selector (str, optional): CSS selector to wait for when using JS rendering. Defaults to None.
+            js_wait_for_timeout (int, optional): Additional timeout in milliseconds after page load when using JS rendering. Defaults to None.
+            js_browser_type (str, optional): Browser type for JS rendering: 'chromium', 'firefox', or 'webkit'. Defaults to 'chromium'.
         """
         self.start_url: str = start_url
         self.max_depth: int = max_depth
@@ -266,6 +286,36 @@ class Crawler:
         
         if self.enable_content_deduplication or self.content_deduplicator.enabled:
             logger.info("Content-based deduplication enabled")
+        
+        # Initialize JavaScript renderer if enabled
+        self.use_js_rendering = use_js_rendering
+        self.js_wait_for_selector = js_wait_for_selector
+        self.js_wait_for_timeout = js_wait_for_timeout
+        self.js_browser_type = js_browser_type
+        self.js_renderer: Optional[Any] = None
+        
+        # Proxy support
+        self.proxy = proxy
+        self.proxy_manager = proxy_manager
+        
+        # Budget tracker
+        self.budget_tracker: Optional[BudgetTracker] = budget_tracker
+        if self.budget_tracker:
+            logger.info("Budget tracking enabled")
+            self.budget_tracker.start()
+        
+        if self.use_js_rendering:
+            if not PLAYWRIGHT_AVAILABLE:
+                logger.warning("JavaScript rendering requested but Playwright not installed. "
+                             "Install with: pip install playwright && python -m playwright install")
+                self.use_js_rendering = False
+            else:
+                logger.info(f"JavaScript rendering enabled with {js_browser_type} browser")
+                if js_wait_for_selector:
+                    logger.info(f"Waiting for selector: {js_wait_for_selector}")
+                if js_wait_for_timeout:
+                    logger.info(f"Additional wait timeout: {js_wait_for_timeout}ms")
+                # Note: JS renderer will be created per request to avoid threading issues
 
     def _extract_base_domain(self, url: str) -> str:
         """Extract the base domain from a URL"""
@@ -379,6 +429,13 @@ class Crawler:
             while self._paused:
                 time.sleep(0.1)  # Small sleep to avoid busy waiting
             
+            # Check budget before processing next URL
+            if self.budget_tracker:
+                can_crawl, reason = self.budget_tracker.can_crawl_page()
+                if not can_crawl:
+                    logger.warning(f"Stopping crawl: {reason}")
+                    break
+            
             current_url, depth = self.queue.popleft()
             
             # Skip if we've already visited this URL
@@ -402,6 +459,14 @@ class Crawler:
                 # Check if paused
                 while self._paused:
                     time.sleep(0.1)
+                
+                # Check budget before submitting new tasks
+                if self.budget_tracker:
+                    can_crawl, reason = self.budget_tracker.can_crawl_page()
+                    if not can_crawl:
+                        logger.warning(f"Stopping crawl: {reason}")
+                        # Wait for existing futures to complete
+                        break
                 
                 # Submit new tasks from queue
                 while len(futures) < self.max_workers:
@@ -518,7 +583,13 @@ class Crawler:
             self.user_agent, 
             self.max_retries, 
             self.timeout,
-            session=session
+            session=session,
+            use_js_rendering=self.use_js_rendering,
+            js_renderer=None,  # Create new renderer per request to avoid threading issues
+            wait_for_selector=self.js_wait_for_selector,
+            wait_for_timeout=self.js_wait_for_timeout,
+            proxy=self.proxy,
+            proxy_manager=self.proxy_manager
         )
         
         # Mark URL as visited (thread-safe)
@@ -542,6 +613,27 @@ class Crawler:
             with self._results_lock:
                 self.results[url]['headers'] = headers
                 self.results[url]['content_type'] = content_type
+            
+            # Record bytes downloaded for budget tracking
+            if self.budget_tracker:
+                # Try to get content length from header, otherwise estimate from content
+                content_length = headers.get('Content-Length')
+                if content_length:
+                    bytes_downloaded = int(content_length)
+                else:
+                    # Estimate from response content if available
+                    try:
+                        if hasattr(response, 'content'):
+                            bytes_downloaded = len(response.content)
+                        elif hasattr(response, 'text'):
+                            bytes_downloaded = len(response.text.encode('utf-8'))
+                        else:
+                            bytes_downloaded = 0
+                    except Exception:
+                        bytes_downloaded = 0
+                
+                if bytes_downloaded > 0:
+                    self.budget_tracker.record_page(bytes_downloaded)
             
             # Cache will be updated after HTML content is processed
             

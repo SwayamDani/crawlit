@@ -4,6 +4,11 @@ html5lib>=1.1
 nltk>=3.6.0
 beautifulsoup4>=4.9.0
 
+# Optional: JavaScript rendering support
+# Uncomment below to enable JavaScript rendering for SPAs
+# playwright>=1.40.0
+# After installing, run: python -m playwright install chromium
+
 # Testing dependencies
 pytest>=7.0.0
 pytest-httpserver>=1.0.0

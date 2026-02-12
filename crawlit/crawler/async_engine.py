@@ -13,6 +13,14 @@ import time
 from .async_fetcher import fetch_page_async as async_fetch_page
 from .parser import extract_links
 from .robots import AsyncRobotsHandler
+
+# Check if Playwright is available for JavaScript rendering
+try:
+    from .js_renderer import AsyncJavaScriptRenderer, is_playwright_available
+    PLAYWRIGHT_AVAILABLE = is_playwright_available()
+except ImportError:
+    PLAYWRIGHT_AVAILABLE = False
+    AsyncJavaScriptRenderer = None
 from ..extractors.image_extractor import ImageTagParser
 from ..extractors.keyword_extractor import KeywordExtractor
 from ..extractors.tables import extract_tables
@@ -26,6 +34,7 @@ from ..utils.storage import StorageManager
 from ..utils.sitemap import SitemapParser, get_sitemaps_from_robots_async
 from ..utils.rate_limiter import AsyncRateLimiter
 from ..utils.deduplication import ContentDeduplicator
+from ..utils.budget_tracker import AsyncBudgetTracker
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +81,14 @@ class AsyncCrawler:
         rate_limiter: Optional[AsyncRateLimiter] = None,
         use_per_domain_delay: bool = True,
         content_deduplicator: Optional[ContentDeduplicator] = None,
-        enable_content_deduplication: bool = False
+        enable_content_deduplication: bool = False,
+        use_js_rendering: bool = False,
+        js_wait_for_selector: Optional[str] = None,
+        js_wait_for_timeout: Optional[int] = None,
+        js_browser_type: str = "chromium",
+        proxy: Optional[str] = None,
+        proxy_manager: Optional['ProxyManager'] = None,
+        budget_tracker: Optional[AsyncBudgetTracker] = None
     ):
         """Initialize the crawler with given parameters.
         
@@ -247,6 +263,42 @@ class AsyncCrawler:
         
         if self.enable_content_deduplication or self.content_deduplicator.enabled:
             logger.info("Content-based deduplication enabled")
+        
+        # Initialize JavaScript renderer if enabled
+        self.use_js_rendering = use_js_rendering
+        self.js_wait_for_selector = js_wait_for_selector
+        self.js_wait_for_timeout = js_wait_for_timeout
+        self.js_browser_type = js_browser_type
+        self.js_renderer: Optional[Any] = None
+        
+        # Proxy support
+        self.proxy = proxy
+        self.proxy_manager = proxy_manager
+        
+        # Budget tracker
+        self.budget_tracker: Optional[AsyncBudgetTracker] = budget_tracker
+        if self.budget_tracker:
+            logger.info("Budget tracking enabled")
+            self.budget_tracker.start()
+        
+        if self.use_js_rendering:
+            if not PLAYWRIGHT_AVAILABLE:
+                logger.warning("JavaScript rendering requested but Playwright not installed. "
+                             "Install with: pip install playwright && python -m playwright install")
+                self.use_js_rendering = False
+            else:
+                logger.info(f"JavaScript rendering enabled with {js_browser_type} browser")
+                if js_wait_for_selector:
+                    logger.info(f"Waiting for selector: {js_wait_for_selector}")
+                if js_wait_for_timeout:
+                    logger.info(f"Additional wait timeout: {js_wait_for_timeout}ms")
+                # Create a shared renderer for async context
+                self.js_renderer = AsyncJavaScriptRenderer(
+                    browser_type=js_browser_type,
+                    user_agent=user_agent,
+                    timeout=timeout * 1000,  # Convert to milliseconds
+                    headless=True
+                )
             
     async def crawl(self):
         """Start the asynchronous crawling process"""
@@ -291,6 +343,13 @@ class AsyncCrawler:
         # Finish progress tracking
         if self.progress_tracker:
             self.progress_tracker.finish()
+        
+        # Cleanup JavaScript renderer if it was used
+        if self.js_renderer:
+            try:
+                await self.js_renderer.close()
+            except Exception as e:
+                logger.warning(f"Error closing JavaScript renderer: {e}")
     
     async def _worker(self):
         """Worker task for processing URLs from the queue"""
@@ -298,6 +357,14 @@ class AsyncCrawler:
             # Check if paused
             while self._paused:
                 await asyncio.sleep(0.1)  # Small sleep to avoid busy waiting
+            
+            # Check budget before processing next URL
+            if self.budget_tracker:
+                can_crawl, reason = self.budget_tracker.can_crawl_page()
+                if not can_crawl:
+                    logger.warning(f"Stopping crawl: {reason}")
+                    self.queue.task_done()
+                    break
             
             current_url, depth = await self.queue.get()
             
@@ -371,7 +438,13 @@ class AsyncCrawler:
                 self.user_agent, 
                 self.max_retries, 
                 self.timeout,
-                session=session
+                session=session,
+                use_js_rendering=self.use_js_rendering,
+                js_renderer=self.js_renderer,
+                wait_for_selector=self.js_wait_for_selector,
+                wait_for_timeout=self.js_wait_for_timeout,
+                proxy=self.proxy,
+                proxy_manager=self.proxy_manager
             )
             
             # Record the HTTP status code
@@ -384,8 +457,28 @@ class AsyncCrawler:
                 response = response_or_error
                 
                 # Store response headers
-                self.results[url]['headers'] = dict(response.headers)
+                headers = dict(response.headers)
+                self.results[url]['headers'] = headers
                 self.results[url]['content_type'] = response.headers.get('Content-Type')
+                
+                # Record bytes downloaded for budget tracking
+                if self.budget_tracker:
+                    # Try to get content length from header
+                    content_length = headers.get('Content-Length')
+                    if content_length:
+                        bytes_downloaded = int(content_length)
+                    else:
+                        # Estimate from response content if available
+                        try:
+                            # For aiohttp, content might not be loaded yet
+                            bytes_downloaded = 0
+                            if hasattr(response, '_body') and response._body:
+                                bytes_downloaded = len(response._body)
+                        except Exception:
+                            bytes_downloaded = 0
+                    
+                    if bytes_downloaded > 0:
+                        self.budget_tracker.record_page(bytes_downloaded)
                 
                 try:
                     # Initialize links list for all URLs
