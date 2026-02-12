@@ -1,4 +1,4 @@
-name: Quick Tests (Unit Only)
+name: Quick Tests (Fast Tests Only)
 
 on:
   push:
@@ -26,13 +26,13 @@ jobs:
         pip install -r requirements.txt
         pip install -e .
     
-    - name: Run unit tests only
+    - name: Run tests (excluding slow/integration/performance)
       run: |
-        pytest -m unit -v --tb=short
+        pytest -v --tb=short -m "not slow and not integration and not performance and not playwright and not distributed"
       continue-on-error: false
     
     - name: Test summary
       if: always()
       run: |
-        echo "Unit tests completed. Check results above."
+        echo "Fast tests completed. Check results above."
 
