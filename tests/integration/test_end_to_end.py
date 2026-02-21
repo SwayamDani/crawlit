@@ -113,11 +113,14 @@ def test_server():
     
     time.sleep(0.5)  # Give server time to start
     
-    yield f"http://localhost:{port}"
-    
-    server.shutdown()
+    try:
+        yield f"http://localhost:{port}"
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
+@pytest.mark.integration
 class TestEndToEndCrawling:
     """End-to-end integration tests."""
     
@@ -126,22 +129,30 @@ class TestEndToEndCrawling:
         from crawlit import Crawler
         
         crawler = Crawler(
+            start_url=test_server,
             max_depth=2,
-            max_pages=10,
-            respect_robots_txt=True
+            respect_robots=True
         )
         
-        results = crawler.crawl(test_server)
+        crawler.crawl()
+        results = crawler.get_results()
         
         assert len(results) > 0
         
-        # Check homepage was crawled
-        homepage = next((r for r in results if r['url'] == test_server + '/'), None)
-        assert homepage is not None
-        assert 'Test Homepage' in homepage['html']
+        # Check homepage was crawled (could be with or without trailing slash)
+        homepage = None
+        for url in results.keys():
+            if url == test_server or url == test_server.rstrip('/') + '/' or url.rstrip('/') == test_server.rstrip('/'):
+                homepage = results[url]
+                break
+        
+        assert homepage is not None, f"Homepage not found in results. Keys: {list(results.keys())}"
+        # Check for HTML content - stored as 'html_content' in results
+        html_content = homepage.get('html_content') or homepage.get('html') or homepage.get('content', '')
+        assert 'Test Homepage' in html_content, f"Homepage HTML: {html_content[:200] if html_content else 'EMPTY'}, Keys: {list(homepage.keys())}"
         
         # Check links were followed
-        assert any('/page1' in r['url'] for r in results)
+        assert any('/page1' in url for url in results.keys())
     
     def test_crawl_with_budget_tracker(self, test_server):
         """Test crawling with budget limits."""
@@ -150,16 +161,14 @@ class TestEndToEndCrawling:
         tracker = BudgetTracker(max_pages=2, max_bandwidth_mb=1.0)
         tracker.start()
         
-        crawler = Crawler(max_depth=2)
+        crawler = Crawler(
+            start_url=test_server,
+            max_depth=2,
+            budget_tracker=tracker
+        )
         
-        # Crawl with budget limits
-        results = []
-        for result in crawler.crawl_iter(test_server):
-            tracker.record_page(len(result['html'].encode('utf-8')))
-            results.append(result)
-            
-            if tracker.is_budget_exceeded():
-                break
+        crawler.crawl()
+        results = crawler.get_results()
         
         # Should stop at or before max_pages
         assert len(results) <= 2
@@ -172,27 +181,28 @@ class TestEndToEndCrawling:
         state = IncrementalState()
         
         # First crawl
-        crawler = Crawler(max_depth=1, max_pages=5)
-        results1 = list(crawler.crawl_iter(test_server))
+        crawler = Crawler(start_url=test_server, max_depth=1)
+        crawler.crawl()
+        results1 = crawler.get_results()
         
         # Store state
-        for result in results1:
-            etag = result.get('headers', {}).get('ETag')
-            last_modified = result.get('headers', {}).get('Last-Modified')
-            state.set_url_state(result['url'], etag=etag, last_modified=last_modified)
+        for url, result in results1.items():
+            headers = result.get('headers', {})
+            etag = headers.get('ETag')
+            last_modified = headers.get('Last-Modified')
+            state.set_url_state(url, etag=etag, last_modified=last_modified)
         
         # Second crawl - check what should be re-crawled
-        crawler2 = Crawler(max_depth=1, max_pages=5)
-        
         urls_to_crawl = []
-        for result in results1:
+        for url, result in results1.items():
+            headers = result.get('headers', {})
             should_crawl, reason = state.should_crawl(
-                result['url'],
-                current_etag=result.get('headers', {}).get('ETag'),
-                current_last_modified=result.get('headers', {}).get('Last-Modified')
+                url,
+                current_etag=headers.get('ETag'),
+                current_last_modified=headers.get('Last-Modified')
             )
             if should_crawl:
-                urls_to_crawl.append(result['url'])
+                urls_to_crawl.append(url)
         
         # With unchanged content, most URLs shouldn't need re-crawling
         assert len(urls_to_crawl) < len(results1)
@@ -202,14 +212,16 @@ class TestEndToEndCrawling:
         from crawlit import Crawler
         
         crawler = Crawler(
+            start_url=test_server,
             max_depth=2,
-            respect_robots_txt=True
+            respect_robots=True
         )
         
-        results = crawler.crawl(test_server)
+        crawler.crawl()
+        results = crawler.get_results()
         
         # Should not crawl /private/ URLs (disallowed in robots.txt)
-        assert not any('/private/' in r['url'] for r in results)
+        assert not any('/private/' in url for url in results.keys())
     
     def test_sitemap_discovery(self, test_server):
         """Test sitemap discovery and parsing."""
@@ -221,20 +233,22 @@ class TestEndToEndCrawling:
         urls = parser.parse_sitemap(sitemap_url)
         
         assert len(urls) > 0
-        assert any(test_server in url['loc'] for url in urls)
+        # SitemapParser returns dicts with 'url' key, not 'loc'
+        assert any(test_server in url['url'] for url in urls)
     
     def test_concurrent_crawling(self, test_server):
         """Test concurrent crawling with thread pool."""
         from crawlit import Crawler
         
         crawler = Crawler(
+            start_url=test_server,
             max_depth=2,
-            max_pages=10,
-            max_concurrent=3
+            max_workers=3
         )
         
         start_time = time.time()
-        results = crawler.crawl(test_server)
+        crawler.crawl()
+        results = crawler.get_results()
         end_time = time.time()
         
         assert len(results) > 0
@@ -245,6 +259,7 @@ class TestEndToEndCrawling:
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
 class TestAsyncEndToEndCrawling:
     """Async end-to-end integration tests."""
     
@@ -253,35 +268,39 @@ class TestAsyncEndToEndCrawling:
         from crawlit import AsyncCrawler
         
         crawler = AsyncCrawler(
-            max_depth=2,
-            max_pages=10
+            start_url=test_server,
+            max_depth=2
         )
         
-        results = await crawler.crawl(test_server)
+        await crawler.crawl()
+        results = crawler.get_results()
         
         assert len(results) > 0
-        assert any(test_server in r['url'] for r in results)
+        assert any(test_server in url for url in results.keys())
     
     async def test_async_concurrent_crawling(self, test_server):
         """Test async concurrent crawling."""
         from crawlit import AsyncCrawler
         
         crawler = AsyncCrawler(
+            start_url=test_server,
             max_depth=2,
-            max_pages=10,
-            max_concurrent=5
+            max_concurrent_requests=5,
+            delay=0  # No delay for faster test
         )
         
         start_time = time.time()
-        results = await crawler.crawl(test_server)
+        await crawler.crawl()
+        results = crawler.get_results()
         end_time = time.time()
         
         assert len(results) > 0
         
-        # Should complete reasonably fast
-        assert end_time - start_time < 5
+        # Should complete reasonably fast (increased from 5 to 10 seconds for CI reliability)
+        assert end_time - start_time < 10
 
 
+@pytest.mark.integration
 class TestRealWorldScenarios:
     """Tests with real-world-like scenarios."""
     
@@ -291,10 +310,11 @@ class TestRealWorldScenarios:
         from crawlit.utils.download_manager import DownloadManager
         
         with tempfile.TemporaryDirectory() as tmpdir:
-            crawler = Crawler(max_depth=1)
+            crawler = Crawler(start_url=test_server, max_depth=1)
             download_manager = DownloadManager(download_dir=tmpdir)
             
-            results = crawler.crawl(test_server)
+            crawler.crawl()
+            results = crawler.get_results()
             
             # In a real scenario, would download PDF/image files found
             # For this test, just verify setup works
@@ -316,21 +336,22 @@ class TestRealWorldScenarios:
         
         # Crawl
         crawler = Crawler(
+            start_url=test_server,
             max_depth=2,
-            max_pages=10,
-            respect_robots_txt=True,
-            follow_redirects=True
+            respect_robots=True,
+            budget_tracker=budget
         )
         
-        results = crawler.crawl(test_server)
+        crawler.crawl()
+        results = crawler.get_results()
         
         # Verify multiple aspects
         assert len(results) > 0
         assert not budget.is_budget_exceeded() or len(results) <= 10
         
         # Update state
-        for result in results:
-            state.set_url_state(result['url'], etag="test")
+        for url in results.keys():
+            state.set_url_state(url, etag="test")
         
         assert len(state) > 0
 

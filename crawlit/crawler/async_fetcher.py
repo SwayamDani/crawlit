@@ -233,9 +233,8 @@ async def fetch_page_async(
             retries += 1
             if retries > max_retries:
                 return False, error_message, status_code or 429
-        
-        # Exponential backoff between retries
-        if retries <= max_retries:
+            
+            # Exponential backoff before retry (only for exceptions)
             backoff_time = min(2 ** retries, 32)  # Cap at 32 seconds
             logger.debug(f"Waiting {backoff_time}s before retry (exponential backoff)")
             await asyncio.sleep(backoff_time)
@@ -396,23 +395,24 @@ async def async_fetch_page(url: str, user_agent: str, max_retries: int = 3, time
     }
     
     attempt = 0
-    
+
     # Configure client timeout
     timeout_obj = aiohttp.ClientTimeout(total=timeout)
-    
-    while attempt <= max_retries:
-        if attempt > 0:
-            logger.debug(f"Retry attempt {attempt} for URL: {url}")
-            # Exponential backoff between retries
-            await asyncio.sleep(2 ** attempt)
-        
-        attempt += 1
-        
-        try:
-            async with aiohttp.ClientSession(timeout=timeout_obj) as session:
+
+    # Create session once outside the retry loop to avoid resource leaks
+    async with aiohttp.ClientSession(timeout=timeout_obj) as session:
+        while attempt <= max_retries:
+            if attempt > 0:
+                logger.debug(f"Retry attempt {attempt} for URL: {url}")
+                # Exponential backoff between retries
+                await asyncio.sleep(2 ** attempt)
+
+            attempt += 1
+
+            try:
                 async with session.get(url, headers=headers, allow_redirects=True) as response:
                     status = response.status
-                    
+
                     # Check if we got a successful response
                     if response.ok:
                         content_type = response.headers.get('Content-Type', '')
@@ -433,22 +433,22 @@ async def async_fetch_page(url: str, user_agent: str, max_retries: int = 3, time
                             return False, None, status
                         elif attempt > max_retries:
                             return False, None, status
-                        
+
                         # Otherwise we'll retry for server errors (5xx) and 429
                         continue
-                        
-        except asyncio.TimeoutError:
-            logger.warning(f"Request to {url} timed out after {timeout} seconds")
-            if attempt > max_retries:
-                return False, None, 0
-        except aiohttp.ClientError as e:
-            logger.error(f"Error fetching {url}: {str(e)}")
-            if attempt > max_retries:
-                return False, None, 0
-        except Exception as e:
-            logger.exception(f"Unexpected error while fetching {url}: {str(e)}")
-            if attempt > max_retries:
-                return False, None, 0
+
+            except asyncio.TimeoutError:
+                logger.warning(f"Request to {url} timed out after {timeout} seconds")
+                if attempt > max_retries:
+                    return False, None, 0
+            except aiohttp.ClientError as e:
+                logger.error(f"Error fetching {url}: {str(e)}")
+                if attempt > max_retries:
+                    return False, None, 0
+            except Exception as e:
+                logger.exception(f"Unexpected error while fetching {url}: {str(e)}")
+                if attempt > max_retries:
+                    return False, None, 0
     
     # If we've exhausted all retries and still no success
     return False, None, 0

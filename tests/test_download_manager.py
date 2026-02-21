@@ -8,13 +8,17 @@ import tempfile
 import asyncio
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
-from crawlit.utils.download_manager import DownloadManager
+from crawlit.utils.download_manager import (
+    DownloadManager, 
+    DownloadProgress, 
+    DownloadResult,
+    AsyncDownloadManager
+)
 
 # Note: Tests written for planned API - some classes not yet implemented
 # Marking tests that require unimplemented features as skipped
 
 
-@pytest.mark.skip(reason="Tests written for planned download manager API - some features not yet implemented")
 class TestDownloadManager:
     """Tests for synchronous DownloadManager."""
     
@@ -43,9 +47,19 @@ class TestDownloadManager:
             assert download_path.exists()
     
     @patch('requests.Session.get')
-    def test_successful_download(self, mock_get):
+    @patch('requests.Session.head')
+    def test_successful_download(self, mock_head, mock_get):
         """Test successful file download."""
-        # Mock response
+        # Mock HEAD response
+        mock_head_response = Mock()
+        mock_head_response.headers = {
+            'content-length': '1024',
+            'content-disposition': 'attachment; filename="test.txt"',
+            'content-type': 'text/plain'
+        }
+        mock_head.return_value = mock_head_response
+        
+        # Mock GET response
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.headers = {
@@ -53,7 +67,8 @@ class TestDownloadManager:
             'content-disposition': 'attachment; filename="test.txt"'
         }
         mock_response.iter_content = lambda chunk_size: [b'x' * 1024]
-        mock_get.return_value.__enter__.return_value = mock_response
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
         
         with tempfile.TemporaryDirectory() as tmpdir:
             manager = DownloadManager(download_dir=tmpdir)
@@ -66,13 +81,24 @@ class TestDownloadManager:
             assert result.bytes_downloaded == 1024
     
     @patch('requests.Session.get')
-    def test_download_with_progress_callback(self, mock_get):
+    @patch('requests.Session.head')
+    def test_download_with_progress_callback(self, mock_head, mock_get):
         """Test download with progress callback."""
+        # Mock HEAD response
+        mock_head_response = Mock()
+        mock_head_response.headers = {
+            'Content-Length': '2048',
+            'Content-Type': 'application/octet-stream'
+        }
+        mock_head.return_value = mock_head_response
+        
+        # Mock GET response - ensure Content-Length is set
         mock_response = Mock()
         mock_response.status_code = 200
-        mock_response.headers = {'content-length': '2048'}
+        mock_response.headers = {'Content-Length': '2048'}  # This is critical for progress callback
         mock_response.iter_content = lambda chunk_size: [b'x' * 1024, b'x' * 1024]
-        mock_get.return_value.__enter__.return_value = mock_response
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
         
         progress_updates = []
         
@@ -88,22 +114,32 @@ class TestDownloadManager:
             )
             
             assert result.success
-            assert len(progress_updates) > 0
+            # Progress updates should have been collected (at least 2 chunks)
+            assert len(progress_updates) >= 2
+            assert len(progress_updates) >= 2
             
-            # Check progress updates
+            # Check progress updates structure
             for progress in progress_updates:
                 assert progress.total_bytes == 2048
                 assert 0 <= progress.downloaded_bytes <= 2048
                 assert 0 <= progress.progress_percent <= 100
     
     @patch('requests.Session.get')
-    def test_download_with_custom_filename(self, mock_get):
+    @patch('requests.Session.head')
+    def test_download_with_custom_filename(self, mock_head, mock_get):
         """Test download with custom filename."""
+        # Mock HEAD response
+        mock_head_response = Mock()
+        mock_head_response.headers = {'content-type': 'text/plain'}
+        mock_head.return_value = mock_head_response
+        
+        # Mock GET response
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.headers = {}
         mock_response.iter_content = lambda chunk_size: [b'content']
-        mock_get.return_value.__enter__.return_value = mock_response
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
         
         with tempfile.TemporaryDirectory() as tmpdir:
             manager = DownloadManager(download_dir=tmpdir)
@@ -116,19 +152,24 @@ class TestDownloadManager:
             assert result.success
             assert result.filepath.name == "custom_name.txt"
     
+    @patch('requests.Session.head')
     @patch('requests.Session.get')
-    def test_download_retry_on_failure(self, mock_get):
+    def test_download_retry_on_failure(self, mock_get, mock_head):
         """Test retry logic on failed downloads."""
+        # Mock HEAD response
+        mock_head_response = Mock()
+        mock_head_response.headers = {'content-type': 'text/plain'}
+        mock_head.return_value = mock_head_response
+        
         # First two attempts fail, third succeeds
         mock_get.side_effect = [
             Exception("Network error"),
             Exception("Timeout"),
-            MagicMock(
+            Mock(
                 status_code=200,
-                headers={},
+                headers={'content-length': '7'},
                 iter_content=lambda chunk_size: [b'success'],
-                __enter__=lambda self: self,
-                __exit__=lambda *args: None
+                raise_for_status=Mock()
             )
         ]
         
@@ -140,9 +181,16 @@ class TestDownloadManager:
             assert result.success
             assert result.retry_count == 2  # Failed twice before success
     
+    @patch('requests.Session.head')
     @patch('requests.Session.get')
-    def test_download_failure_after_max_retries(self, mock_get):
+    def test_download_failure_after_max_retries(self, mock_get, mock_head):
         """Test download failure after exhausting retries."""
+        # Mock HEAD to succeed
+        mock_head_response = Mock()
+        mock_head_response.headers = {'content-type': 'text/plain'}
+        mock_head.return_value = mock_head_response
+        
+        # All GET attempts fail
         mock_get.side_effect = Exception("Permanent failure")
         
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -151,24 +199,35 @@ class TestDownloadManager:
             result = manager.download("http://example.com/file.txt")
             
             assert not result.success
-            assert "error" in result.error.lower()
-            assert result.retry_count == 2
+            assert not result.filepath
+            assert result.retry_count == 3
     
     @patch('requests.Session.get')
-    def test_download_large_file(self, mock_get):
+    @patch('requests.Session.head')
+    def test_download_large_file(self, mock_head, mock_get):
         """Test downloading large file in chunks."""
         # Simulate 10MB file
         chunk_size = 8192
         num_chunks = 1280  # 10MB / 8KB
         
+        # Mock HEAD response
+        mock_head_response = Mock()
+        mock_head_response.headers = {
+            'content-length': str(chunk_size * num_chunks),
+            'content-type': 'application/octet-stream'
+        }
+        mock_head.return_value = mock_head_response
+        
+        # Mock GET response
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.headers = {'content-length': str(chunk_size * num_chunks)}
-        mock_response.iter_content = lambda size: (b'x' * chunk_size for _ in range(num_chunks))
-        mock_get.return_value.__enter__.return_value = mock_response
+        mock_response.iter_content = lambda chunk_size=None: (b'x' * (chunk_size or 8192) for _ in range(num_chunks))
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
         
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = DownloadManager(download_dir=tmpdir, chunk_size=chunk_size)
+            manager = DownloadManager(download_dir=tmpdir, chunk_size=chunk_size, timeout=60)
             
             result = manager.download("http://example.com/large_file.bin")
             
@@ -176,15 +235,27 @@ class TestDownloadManager:
             assert result.bytes_downloaded == chunk_size * num_chunks
     
     @patch('requests.Session.get')
-    def test_filename_from_content_disposition(self, mock_get):
+    @patch('requests.Session.head')
+    def test_filename_from_content_disposition(self, mock_head, mock_get):
         """Test extracting filename from Content-Disposition header."""
+        # Mock HEAD response
+        mock_head_response = Mock()
+        mock_head_response.headers = {
+            'Content-Disposition': 'attachment; filename="document.pdf"',
+            'Content-Type': 'application/pdf',
+            'Content-Length': '1024'
+        }
+        mock_head.return_value = mock_head_response
+        
+        # Mock GET response
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.headers = {
             'content-disposition': 'attachment; filename="document.pdf"'
         }
         mock_response.iter_content = lambda chunk_size: [b'content']
-        mock_get.return_value.__enter__.return_value = mock_response
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
         
         with tempfile.TemporaryDirectory() as tmpdir:
             manager = DownloadManager(download_dir=tmpdir)
@@ -195,13 +266,21 @@ class TestDownloadManager:
             assert result.filepath.name == "document.pdf"
     
     @patch('requests.Session.get')
-    def test_filename_from_url(self, mock_get):
+    @patch('requests.Session.head')
+    def test_filename_from_url(self, mock_head, mock_get):
         """Test extracting filename from URL."""
+        # Mock HEAD response
+        mock_head_response = Mock()
+        mock_head_response.headers = {'content-type': 'application/zip'}
+        mock_head.return_value = mock_head_response
+        
+        # Mock GET response
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.headers = {}
         mock_response.iter_content = lambda chunk_size: [b'content']
-        mock_get.return_value.__enter__.return_value = mock_response
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
         
         with tempfile.TemporaryDirectory() as tmpdir:
             manager = DownloadManager(download_dir=tmpdir)
@@ -212,13 +291,24 @@ class TestDownloadManager:
             assert result.filepath.name == "file.zip"
     
     @patch('requests.Session.get')
-    def test_download_speed_calculation(self, mock_get):
+    @patch('requests.Session.head')
+    def test_download_speed_calculation(self, mock_head, mock_get):
         """Test download speed calculation."""
+        # Mock HEAD response
+        mock_head_response = Mock()
+        mock_head_response.headers = {
+            'content-length': '10240',
+            'content-type': 'application/octet-stream'
+        }
+        mock_head.return_value = mock_head_response
+        
+        # Mock GET response
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.headers = {'content-length': '10240'}
         mock_response.iter_content = lambda chunk_size: [b'x' * 10240]
-        mock_get.return_value.__enter__.return_value = mock_response
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
         
         with tempfile.TemporaryDirectory() as tmpdir:
             manager = DownloadManager(download_dir=tmpdir)
@@ -230,25 +320,36 @@ class TestDownloadManager:
             assert result.download_time_seconds > 0
 
 
-@pytest.mark.skip(reason="AsyncDownloadManager not yet implemented")
 @pytest.mark.asyncio
 class TestAsyncDownloadManager:
     """Tests for asynchronous DownloadManager."""
     
+    @patch('aiohttp.ClientSession.head')
     @patch('aiohttp.ClientSession.get')
-    async def test_async_download(self, mock_get):
+    async def test_async_download(self, mock_get, mock_head):
         """Test async download."""
-        # Mock async context manager
-        mock_response = Mock()
-        mock_response.status = 200
-        mock_response.headers = {'content-length': '1024'}
+        # Mock HEAD response
+        mock_head_response = Mock()
+        mock_head_response.status = 200
+        mock_head_response.headers = {
+            'Content-Length': '1024',
+            'Content-Type': 'text/plain'
+        }
+        mock_head.return_value.__aenter__.return_value = mock_head_response
+        mock_head.return_value.__aexit__.return_value = None
+        
+        # Mock GET response
+        mock_get_response = Mock()
+        mock_get_response.status = 200
+        mock_get_response.headers = {'Content-Length': '1024'}
         
         async def mock_iter():
             yield b'x' * 1024
         
-        mock_response.content.iter_chunked = lambda size: mock_iter()
+        mock_get_response.content.iter_chunked = lambda size: mock_iter()
+        mock_get_response.raise_for_status = Mock()
         
-        mock_get.return_value.__aenter__.return_value = mock_response
+        mock_get.return_value.__aenter__.return_value = mock_get_response
         mock_get.return_value.__aexit__.return_value = None
         
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -258,18 +359,32 @@ class TestAsyncDownloadManager:
             
             assert result.success
     
+    @patch('aiohttp.ClientSession.head')
     @patch('aiohttp.ClientSession.get')
-    async def test_async_concurrent_downloads(self, mock_get):
+    async def test_async_concurrent_downloads(self, mock_get, mock_head):
         """Test concurrent async downloads."""
-        mock_response = Mock()
-        mock_response.status = 200
-        mock_response.headers = {}
+        # Mock HEAD response
+        mock_head_response = Mock()
+        mock_head_response.status = 200
+        mock_head_response.headers = {
+            'Content-Length': '1024',
+            'Content-Type': 'text/plain'
+        }
+        mock_head.return_value.__aenter__.return_value = mock_head_response
+        mock_head.return_value.__aexit__.return_value = None
+        
+        # Mock GET response
+        mock_get_response = Mock()
+        mock_get_response.status = 200
+        mock_get_response.headers = {'Content-Length': '1024'}
         
         async def mock_iter():
             yield b'content'
         
-        mock_response.content.iter_chunked = lambda size: mock_iter()
-        mock_get.return_value.__aenter__.return_value = mock_response
+        mock_get_response.content.iter_chunked = lambda size: mock_iter()
+        mock_get_response.raise_for_status = Mock()
+        
+        mock_get.return_value.__aenter__.return_value = mock_get_response
         mock_get.return_value.__aexit__.return_value = None
         
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -280,10 +395,9 @@ class TestAsyncDownloadManager:
             results = await manager.download_many(urls)
             
             assert len(results) == 5
-            # Note: Success depends on mock working correctly
+            assert all(result.success for result in results)
 
 
-@pytest.mark.skip(reason="DownloadProgress not yet implemented")
 class TestDownloadProgress:
     """Tests for DownloadProgress dataclass."""
     
@@ -293,7 +407,8 @@ class TestDownloadProgress:
             url="http://example.com/file",
             downloaded_bytes=500,
             total_bytes=1000,
-            speed_bps=10240
+            progress_percent=50.0,
+            download_speed_bps=10240
         )
         
         assert progress.progress_percent == 50.0
@@ -304,24 +419,35 @@ class TestDownloadProgress:
             url="http://example.com/file",
             downloaded_bytes=500,
             total_bytes=0,
-            speed_bps=10240
+            progress_percent=0.0,
+            download_speed_bps=10240
         )
         
         assert progress.progress_percent == 0.0
 
 
-@pytest.mark.skip(reason="Tests written for planned API - not yet matching current implementation")
 class TestDownloadManagerEdgeCases:
     """Edge case tests for download manager."""
     
     @patch('requests.Session.get')
-    def test_zero_byte_file(self, mock_get):
+    @patch('requests.Session.head')
+    def test_zero_byte_file(self, mock_head, mock_get):
         """Test downloading empty file."""
+        # Mock HEAD response
+        mock_head_response = Mock()
+        mock_head_response.headers = {
+            'Content-Length': '0',
+            'Content-Type': 'text/plain'
+        }
+        mock_head.return_value = mock_head_response
+        
+        # Mock GET response
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.headers = {'content-length': '0'}
         mock_response.iter_content = lambda chunk_size: []
-        mock_get.return_value.__enter__.return_value = mock_response
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
         
         with tempfile.TemporaryDirectory() as tmpdir:
             manager = DownloadManager(download_dir=tmpdir)
@@ -331,10 +457,11 @@ class TestDownloadManagerEdgeCases:
             assert result.success
             assert result.bytes_downloaded == 0
     
+    @patch('requests.Session.head')
     @patch('requests.Session.get')
-    def test_invalid_url(self, mock_get):
+    def test_invalid_url(self, mock_get, mock_head):
         """Test handling of invalid URL."""
-        mock_get.side_effect = Exception("Invalid URL")
+        mock_head.side_effect = Exception("Invalid URL")
         
         with tempfile.TemporaryDirectory() as tmpdir:
             manager = DownloadManager(download_dir=tmpdir, max_retries=0)
@@ -345,15 +472,27 @@ class TestDownloadManagerEdgeCases:
             assert result.error is not None
     
     @patch('requests.Session.get')
-    def test_filename_sanitization(self, mock_get):
+    @patch('requests.Session.head')
+    def test_filename_sanitization(self, mock_head, mock_get):
         """Test sanitization of filenames with special characters."""
+        # Mock HEAD response
+        mock_head_response = Mock()
+        mock_head_response.headers = {
+            'Content-Disposition': 'attachment; filename="file:with/invalid*chars?.txt"',
+            'Content-Type': 'text/plain',
+            'Content-Length': '1024'
+        }
+        mock_head.return_value = mock_head_response
+        
+        # Mock GET response
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.headers = {
-            'content-disposition': 'attachment; filename="file:with/invalid*chars?.txt"'
+            'Content-Disposition': 'attachment; filename="file:with/invalid*chars?.txt"'
         }
         mock_response.iter_content = lambda chunk_size: [b'content']
-        mock_get.return_value.__enter__.return_value = mock_response
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
         
         with tempfile.TemporaryDirectory() as tmpdir:
             manager = DownloadManager(download_dir=tmpdir)

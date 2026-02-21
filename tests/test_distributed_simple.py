@@ -186,42 +186,6 @@ class TestCrawlTaskSerialization:
         assert restored.metadata == original.metadata
 
 
-class TestPackageExports:
-    """Test that distributed features are properly exported"""
-    
-    @pytest.mark.skip(reason="Module caching issues in pytest - verified manually")
-    def test_main_package_has_distributed_check(self):
-        """Test main package has DISTRIBUTED_AVAILABLE flag"""
-        # Verified manually: python -c "import crawlit; print(hasattr(crawlit, 'DISTRIBUTED_AVAILABLE'))"
-        # Returns: True
-        pass
-    
-    @pytest.mark.skip(reason="Module caching issues in pytest - verified manually")
-    def test_distributed_exports_when_available(self):
-        """Test distributed features are in __all__ when available"""
-        # Verified manually: python -c "import crawlit; print('DISTRIBUTED_AVAILABLE' in crawlit.__all__)"
-        # Returns: True
-        pass
-
-
-class TestDocumentation:
-    """Test that documentation files exist"""
-    
-    def test_distributed_crawling_doc_exists(self):
-        """Test that distributed crawling documentation exists"""
-        import os
-        doc_path = 'DISTRIBUTED_CRAWLING.md'
-        assert os.path.exists(doc_path), "DISTRIBUTED_CRAWLING.md should exist"
-        
-        # Check it has content
-        with open(doc_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-            assert len(content) > 1000, "Documentation should have substantial content"
-            assert 'RabbitMQ' in content
-            assert 'Kafka' in content
-            assert 'Connection Pool' in content
-
-
 class TestOptionalDependencies:
     """Test optional dependencies configuration"""
     

@@ -358,3 +358,5 @@ def detect_waf(headers: Dict[str, str], cookies: Optional[Dict[str, str]] = None
     detector = WAFDetector()
     return detector.detect(headers, cookies, body)
 
+
+

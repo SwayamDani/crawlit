@@ -7,14 +7,13 @@ import pytest
 import tempfile
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
-from crawlit.utils.incremental import IncrementalCrawler
+from crawlit.utils.incremental import IncrementalCrawler, IncrementalState, StateManager
 
 
 # Note: Tests adapted for IncrementalCrawler (actual implementation)
 # Some tests may be skipped as they were written for planned API changes
 
 
-@pytest.mark.skip(reason="Tests written for planned API - IncrementalState not yet implemented")
 class TestIncrementalState:
     """Tests for IncrementalState class."""
     
@@ -202,7 +201,6 @@ class TestIncrementalState:
         assert not removed
 
 
-@pytest.mark.skip(reason="Tests written for planned API - StateManager not yet implemented")
 class TestStateManager:
     """Tests for StateManager class."""
     
@@ -280,7 +278,6 @@ class TestStateManager:
             Path(filepath).unlink(missing_ok=True)
 
 
-@pytest.mark.skip(reason="Tests written for planned API - not yet matching current implementation")
 class TestIncrementalCrawlingEdgeCases:
     """Edge case tests for incremental crawling."""
     

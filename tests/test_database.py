@@ -320,23 +320,50 @@ class TestDatabaseFactory:
     
     def test_backend_aliases(self):
         """Test that backend aliases work"""
-        # PostgreSQL aliases
+        import os
+        
+        # Test SQLite - always works
+        db1 = get_database_backend('sqlite')
+        assert type(db1).__name__ == 'SQLiteBackend'
+        
+        # Test PostgreSQL aliases if available
         try:
             from crawlit.utils.database import PostgreSQLBackend
-            # Just check that aliases resolve to same class, don't connect
-            assert get_database_backend.__code__.co_consts
-            # We can't test connection without a server, so skip
-            pytest.skip("PostgreSQL aliases test requires running server")
+            password = os.environ.get('POSTGRES_PASSWORD', 'postgres')
+            
+            try:
+                # Test that different aliases all work
+                db3 = get_database_backend('postgresql', host='localhost', 
+                                          user='postgres', password=password,
+                                          database='crawlit_test')
+                db4 = get_database_backend('postgres', host='localhost',
+                                          user='postgres', password=password,
+                                          database='crawlit_test')
+                db5 = get_database_backend('psql', host='localhost',
+                                          user='postgres', password=password,
+                                          database='crawlit_test')
+                
+                assert type(db3).__name__ == 'PostgreSQLBackend'
+                assert type(db4).__name__ == 'PostgreSQLBackend'
+                assert type(db5).__name__ == 'PostgreSQLBackend'
+            except Exception as e:
+                error_msg = str(e)
+                if "could not connect" in error_msg.lower() or "connection refused" in error_msg.lower():
+                    pytest.skip(f"PostgreSQL server not running: {e}")
+                elif "authentication failed" in error_msg.lower():
+                    pytest.skip(f"PostgreSQL authentication failed: {e}")
+                else:
+                    raise
         except ImportError:
-            pytest.skip("psycopg2 not installed")
+            pass  # PostgreSQL not installed, that's ok
         
-        # MongoDB aliases
+        # Test MongoDB aliases if available
         try:
             from crawlit.utils.database import MongoDBBackend
-            # Just check that aliases resolve to same class, don't connect
-            pytest.skip("MongoDB aliases test requires running server")
+            # Just verify the backend exists, don't require connection
+            assert MongoDBBackend is not None
         except ImportError:
-            pytest.skip("pymongo not installed")
+            pass  # MongoDB not installed, that's ok
 
 
 class TestDatabaseIntegration:
@@ -399,44 +426,64 @@ class TestDatabaseIntegration:
                 os.unlink(db_path)
 
 
-@pytest.mark.skipif(True, reason="PostgreSQL requires external database - manual testing only")
+
 class TestPostgreSQLBackend:
     """PostgreSQL backend tests (requires running PostgreSQL server)"""
     
     def test_postgresql_connection(self):
-        """Test PostgreSQL connection"""
+        """Test PostgreSQL connection and automatic database creation"""
         try:
             from crawlit.utils.database import PostgreSQLBackend
-            
+        except ImportError:
+            pytest.skip("psycopg2 not installed")
+        
+        # Try to check if PostgreSQL is available
+        import os
+        password = os.environ.get('POSTGRES_PASSWORD', 'postgres')
+        
+        try:
+            # This will automatically create the database if it doesn't exist
             db = PostgreSQLBackend(
                 host='localhost',
                 database='crawlit_test',
                 user='postgres',
-                password='postgres'
+                password=password
             )
             db.connect()
             assert db.conn is not None
+            
+            # Test that tables were created
+            db.cursor.execute("""
+                SELECT table_name FROM information_schema.tables 
+                WHERE table_schema = 'public'
+            """)
+            tables = [row['table_name'] for row in db.cursor.fetchall()]
+            assert 'crawls' in tables
+            assert 'results' in tables
+            
             db.disconnect()
-        except ImportError:
-            pytest.skip("psycopg2 not installed")
+        except Exception as e:
+            error_msg = str(e)
+            if "could not connect" in error_msg.lower() or "connection refused" in error_msg.lower():
+                pytest.skip(f"PostgreSQL server not running: {e}")
+            elif "authentication failed" in error_msg.lower() or "password" in error_msg.lower():
+                pytest.skip(f"PostgreSQL authentication failed (try setting POSTGRES_PASSWORD env var): {e}")
+            else:
+                raise
 
 
-@pytest.mark.skipif(True, reason="MongoDB requires external database - manual testing only")
 class TestMongoDBBackend:
     """MongoDB backend tests (requires running MongoDB server)"""
     
     def test_mongodb_connection(self):
         """Test MongoDB connection"""
-        try:
-            from crawlit.utils.database import MongoDBBackend
-            
-            db = MongoDBBackend(
-                host='localhost',
-                database='crawlit_test'
-            )
-            db.connect()
-            assert db.client is not None
-            db.disconnect()
-        except ImportError:
-            pytest.skip("pymongo not installed")
+        from crawlit.utils.database import MongoDBBackend
+        
+        db = MongoDBBackend(
+            host='localhost',
+            database='crawlit_test'
+        )
+        db.connect()
+        assert db.client is not None
+        db.disconnect()
 

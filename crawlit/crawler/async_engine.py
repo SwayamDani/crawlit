@@ -279,7 +279,14 @@ class AsyncCrawler:
         self.budget_tracker: Optional[AsyncBudgetTracker] = budget_tracker
         if self.budget_tracker:
             logger.info("Budget tracking enabled")
-            self.budget_tracker.start()
+        
+        # Sitemap support
+        self.use_sitemap = use_sitemap
+        self.sitemap_urls = sitemap_urls or []
+        self.sitemap_parser = None
+        if self.use_sitemap:
+            self.sitemap_parser = SitemapParser(timeout=self.timeout)
+            logger.info("Sitemap support enabled")
         
         if self.use_js_rendering:
             if not PLAYWRIGHT_AVAILABLE:
@@ -343,13 +350,19 @@ class AsyncCrawler:
         # Finish progress tracking
         if self.progress_tracker:
             self.progress_tracker.finish()
-        
+
         # Cleanup JavaScript renderer if it was used
         if self.js_renderer:
             try:
                 await self.js_renderer.close()
             except Exception as e:
                 logger.warning(f"Error closing JavaScript renderer: {e}")
+
+        # Cleanup async session from session manager
+        try:
+            await self.session_manager.close_async_session()
+        except Exception as e:
+            logger.warning(f"Error closing async session: {e}")
     
     async def _worker(self):
         """Worker task for processing URLs from the queue"""

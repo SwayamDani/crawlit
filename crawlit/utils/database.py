@@ -372,7 +372,44 @@ class PostgreSQLBackend(DatabaseBackend):
         }
         self.conn = None
         self.cursor = None
+        self._ensure_database_exists()
         self._create_tables()
+    
+    def _ensure_database_exists(self):
+        """Create the database if it doesn't exist"""
+        try:
+            # First, try to connect to the target database
+            conn = self.psycopg2.connect(**self.config)
+            conn.close()
+            logger.debug(f"Database '{self.config['database']}' exists")
+        except self.psycopg2.OperationalError as e:
+            error_msg = str(e)
+            
+            # Check if error is because database doesn't exist
+            if "database" in error_msg.lower() and "does not exist" in error_msg.lower():
+                logger.info(f"Database '{self.config['database']}' does not exist, creating it...")
+                
+                # Connect to 'postgres' database to create the new database
+                temp_config = self.config.copy()
+                temp_config['database'] = 'postgres'
+                
+                try:
+                    conn = self.psycopg2.connect(**temp_config)
+                    conn.autocommit = True  # Required for CREATE DATABASE
+                    cursor = conn.cursor()
+                    
+                    # Create the database
+                    cursor.execute(f"CREATE DATABASE {self.config['database']}")
+                    
+                    cursor.close()
+                    conn.close()
+                    logger.info(f"Database '{self.config['database']}' created successfully")
+                except Exception as create_error:
+                    logger.error(f"Failed to create database: {create_error}")
+                    raise
+            else:
+                # Re-raise if it's a different error (connection, auth, etc.)
+                raise
     
     @classmethod
     def check_availability(cls, **config) -> tuple[bool, str]:
@@ -707,8 +744,8 @@ class MongoDBBackend(DatabaseBackend):
             else:
                 conn_str = f"mongodb://{host}:{port}"
             
-            # Try to connect with short timeout
-            client = pymongo.MongoClient(conn_str, serverSelectionTimeoutMS=3000)
+            # Try to connect with short timeout and direct connection
+            client = pymongo.MongoClient(conn_str, serverSelectionTimeoutMS=3000, directConnection=True)
             # Trigger actual connection
             client.server_info()
             client.close()
@@ -755,6 +792,10 @@ class MongoDBBackend(DatabaseBackend):
                 conn_str = f"mongodb://{self.username}:{self.password}@{self.host}:{self.port}"
             else:
                 conn_str = f"mongodb://{self.host}:{self.port}"
+            
+            # Add directConnection=True if not already specified to bypass replica set discovery
+            if 'directConnection' not in self.kwargs:
+                self.kwargs['directConnection'] = True
             
             self.client = self.pymongo.MongoClient(conn_str, **self.kwargs)
             self.db = self.client[self.database_name]
@@ -868,6 +909,7 @@ def get_database_backend(backend_type: str, check_setup: bool = True, **config) 
         'sqlite': SQLiteBackend,
         'postgresql': PostgreSQLBackend,
         'postgres': PostgreSQLBackend,  # Alias
+        'psql': PostgreSQLBackend,  # Alias
         'mongodb': MongoDBBackend,
         'mongo': MongoDBBackend,  # Alias
     }

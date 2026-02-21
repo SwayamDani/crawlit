@@ -6,16 +6,20 @@ Integration tests for JavaScript rendering with real SPAs
 import pytest
 import asyncio
 
+# Check if Playwright is available
+try:
+    import playwright
+    PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    PLAYWRIGHT_AVAILABLE = False
+
 
 @pytest.mark.playwright
 @pytest.mark.integration
+@pytest.mark.skipif(not PLAYWRIGHT_AVAILABLE, reason="Playwright not installed")
 class TestJavaScriptRendering:
     """Tests for JavaScript rendering with Playwright."""
     
-    @pytest.mark.skipif(
-        not pytest.importorskip("playwright", minversion="1.40.0"),
-        reason="Playwright not installed"
-    )
     def test_render_react_spa(self):
         """Test rendering a React single-page application."""
         from crawlit.crawler.js_renderer import JavaScriptRenderer
@@ -36,10 +40,6 @@ class TestJavaScriptRendering:
         finally:
             renderer.close()
     
-    @pytest.mark.skipif(
-        not pytest.importorskip("playwright", minversion="1.40.0"),
-        reason="Playwright not installed"
-    )
     def test_render_with_wait_for_network(self):
         """Test waiting for network idle."""
         from crawlit.crawler.js_renderer import JavaScriptRenderer
@@ -60,10 +60,6 @@ class TestJavaScriptRendering:
         finally:
             renderer.close()
     
-    @pytest.mark.skipif(
-        not pytest.importorskip("playwright", minversion="1.40.0"),
-        reason="Playwright not installed"
-    )
     def test_screenshot_capture(self):
         """Test capturing screenshots."""
         from crawlit.crawler.js_renderer import JavaScriptRenderer
@@ -91,10 +87,6 @@ class TestJavaScriptRendering:
             finally:
                 renderer.close()
     
-    @pytest.mark.skipif(
-        not pytest.importorskip("playwright", minversion="1.40.0"),
-        reason="Playwright not installed"
-    )
     def test_execute_custom_javascript(self):
         """Test executing custom JavaScript."""
         from crawlit.crawler.js_renderer import JavaScriptRenderer
@@ -115,10 +107,6 @@ class TestJavaScriptRendering:
             renderer.close()
     
     @pytest.mark.asyncio
-    @pytest.mark.skipif(
-        not pytest.importorskip("playwright", minversion="1.40.0"),
-        reason="Playwright not installed"
-    )
     async def test_async_rendering(self):
         """Test async JavaScript rendering."""
         from crawlit.crawler.js_renderer import AsyncJavaScriptRenderer
@@ -136,10 +124,6 @@ class TestJavaScriptRendering:
             await renderer.close()
     
     @pytest.mark.asyncio
-    @pytest.mark.skipif(
-        not pytest.importorskip("playwright", minversion="1.40.0"),
-        reason="Playwright not installed"
-    )
     async def test_concurrent_async_rendering(self):
         """Test concurrent async rendering of multiple pages."""
         from crawlit.crawler.js_renderer import AsyncJavaScriptRenderer
@@ -164,13 +148,10 @@ class TestJavaScriptRendering:
 
 
 @pytest.mark.integration
+@pytest.mark.skipif(not PLAYWRIGHT_AVAILABLE, reason="Playwright not installed")
 class TestJavaScriptRenderingEdgeCases:
     """Edge case tests for JavaScript rendering."""
     
-    @pytest.mark.skipif(
-        not pytest.importorskip("playwright", minversion="1.40.0"),
-        reason="Playwright not installed"
-    )
     def test_render_timeout_handling(self):
         """Test handling of render timeouts."""
         from crawlit.crawler.js_renderer import JavaScriptRenderer
@@ -191,10 +172,6 @@ class TestJavaScriptRenderingEdgeCases:
         finally:
             renderer.close()
     
-    @pytest.mark.skipif(
-        not pytest.importorskip("playwright", minversion="1.40.0"),
-        reason="Playwright not installed"
-    )
     def test_render_invalid_url(self):
         """Test rendering with invalid URL."""
         from crawlit.crawler.js_renderer import JavaScriptRenderer
@@ -209,10 +186,6 @@ class TestJavaScriptRenderingEdgeCases:
         finally:
             renderer.close()
     
-    @pytest.mark.skipif(
-        not pytest.importorskip("playwright", minversion="1.40.0"),
-        reason="Playwright not installed"
-    )
     def test_render_page_with_infinite_scroll(self):
         """Test handling pages with infinite scroll."""
         from crawlit.crawler.js_renderer import JavaScriptRenderer
@@ -232,4 +205,6 @@ class TestJavaScriptRenderingEdgeCases:
             assert result['success']
         finally:
             renderer.close()
+
+
 

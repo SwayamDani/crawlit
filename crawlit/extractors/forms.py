@@ -488,3 +488,5 @@ def extract_forms(html_content: str, base_url: str = "") -> List[Form]:
     extractor = FormExtractor(html_content, base_url)
     return extractor.extract_all_forms()
 
+
+

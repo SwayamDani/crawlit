@@ -149,7 +149,6 @@ class TestExponentialBackoff:
         assert mock_sleep.call_count == 0
 
 
-@pytest.mark.skip(reason="Async mocking complex - actual implementation verified in sync tests")
 @pytest.mark.asyncio
 class TestAsyncExponentialBackoff:
     """Test exponential backoff in async retry logic"""
@@ -163,15 +162,38 @@ class TestAsyncExponentialBackoff:
         # Create mock response with 500 error
         mock_response = MagicMock()
         mock_response.status = 500
-        mock_response.__aenter__ = MagicMock(return_value=mock_response)
-        mock_response.__aexit__ = MagicMock(return_value=None)
+        mock_response.headers = {'Content-Type': 'text/html'}
+        
+        # Mock session.get() to return the mock response directly
+        # The response doesn't need to be a context manager in this structure
+        mock_get = MagicMock()
+        
+        # Properly mock async context manager for response
+        async def response_aenter(*args, **kwargs):
+            return mock_response
+        
+        async def response_aexit(*args, **kwargs):
+            return None
+        
+        # Mock the response returned by get to be a context manager
+        mock_get_result = MagicMock()
+        mock_get_result.__aenter__ = response_aenter
+        mock_get_result.__aexit__ = response_aexit
+        mock_get.return_value = mock_get_result
         
         # Mock session
         mock_session = MagicMock()
-        mock_session.get = MagicMock(return_value=mock_response)
-        mock_session.__aenter__ = MagicMock(return_value=mock_session)
-        mock_session.__aexit__ = MagicMock(return_value=None)
-        mock_session_class.return_value = mock_session
+        mock_session.get = mock_get
+        
+        # Properly mock async context manager for session
+        async def session_aenter(*args, **kwargs):
+            return mock_session
+        
+        async def session_aexit(*args, **kwargs):
+            return None
+        
+        mock_session_class.return_value.__aenter__ = session_aenter
+        mock_session_class.return_value.__aexit__ = session_aexit
         
         # Make sleep async
         async def async_sleep(duration):

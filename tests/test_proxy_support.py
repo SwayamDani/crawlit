@@ -386,3 +386,5 @@ class TestProxyParsing:
         assert proxy.port == 8080
         assert proxy.proxy_type == ProxyType.HTTP
 
+
+

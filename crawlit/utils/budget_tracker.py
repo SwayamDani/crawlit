@@ -12,7 +12,7 @@ Tracks and enforces limits on:
 import logging
 import time
 import threading
-from typing import Optional, Callable, Dict, Any
+from typing import Optional, Callable, Dict, Any, Tuple
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -46,40 +46,45 @@ class BudgetTracker:
         Initialize the budget tracker.
         
         Args:
-            max_pages: Maximum number of pages to crawl
-            max_bandwidth_mb: Maximum bandwidth in megabytes
-            max_time_seconds: Maximum time in seconds
-            max_file_size_mb: Maximum file size per request in megabytes
+            max_pages: Maximum number of pages to crawl (must be positive or None)
+            max_bandwidth_mb: Maximum bandwidth in megabytes (must be positive or None)
+            max_time_seconds: Maximum time in seconds (must be positive or None)
+            max_file_size_mb: Maximum file size per request in megabytes (must be positive or None)
             on_budget_exceeded: Callback when budget is exceeded (receives limit_type and stats)
+            
+        Raises:
+            ValueError: If any limit is zero or negative
         """
+        # Validate limits
+        if max_pages is not None and max_pages <= 0:
+            raise ValueError(f"max_pages must be positive, got {max_pages}")
+        if max_bandwidth_mb is not None and max_bandwidth_mb <= 0:
+            raise ValueError(f"max_bandwidth_mb must be positive, got {max_bandwidth_mb}")
+        if max_time_seconds is not None and max_time_seconds <= 0:
+            raise ValueError(f"max_time_seconds must be positive, got {max_time_seconds}")
+        if max_file_size_mb is not None and max_file_size_mb <= 0:
+            raise ValueError(f"max_file_size_mb must be positive, got {max_file_size_mb}")
         self.limits = BudgetLimits(
             max_pages=max_pages,
             max_bandwidth_mb=max_bandwidth_mb,
             max_time_seconds=max_time_seconds,
             max_file_size_mb=max_file_size_mb
         )
-        
+
         # Track usage
         self._pages_crawled = 0
         self._bytes_downloaded = 0
-        self._start_time = None
+        self._start_time = time.time() if max_time_seconds else None
         self._on_budget_exceeded = on_budget_exceeded
-        
+
         # Thread safety
         self._lock = threading.Lock()
-        
+
         # Track if budget was exceeded
         self._budget_exceeded = False
         self._exceeded_reason = None
-        
+
         logger.info(f"Budget tracker initialized: {self._format_limits()}")
-    
-    def start(self):
-        """Start tracking time."""
-        with self._lock:
-            if self._start_time is None:
-                self._start_time = time.time()
-                logger.debug("Budget tracker started")
     
     def _format_limits(self) -> str:
         """Format limits as a readable string."""
@@ -94,13 +99,15 @@ class BudgetTracker:
             limits.append(f"file_size={self.limits.max_file_size_mb}MB")
         return ", ".join(limits) if limits else "no limits"
     
-    def can_crawl_page(self) -> tuple[bool, Optional[str]]:
+    def can_crawl_page(self) -> Tuple[bool, Optional[str]]:
         """
         Check if a new page can be crawled without exceeding budget.
-        
+
         Returns:
             Tuple of (can_crawl, reason) where reason is set if cannot crawl
         """
+        callback_info = None
+        
         with self._lock:
             # Check if budget already exceeded
             if self._budget_exceeded:
@@ -109,34 +116,42 @@ class BudgetTracker:
             # Check page limit
             if self.limits.max_pages and self._pages_crawled >= self.limits.max_pages:
                 reason = f"Page limit reached ({self.limits.max_pages} pages)"
-                self._mark_exceeded(reason)
-                return False, reason
+                callback_info = self._mark_exceeded(reason)
+                # Fall through to trigger callback outside lock
             
             # Check time limit
-            if self.limits.max_time_seconds and self._start_time:
+            elif self.limits.max_time_seconds and self._start_time:
                 elapsed = time.time() - self._start_time
                 if elapsed >= self.limits.max_time_seconds:
                     reason = f"Time limit reached ({self.limits.max_time_seconds}s)"
-                    self._mark_exceeded(reason)
-                    return False, reason
+                    callback_info = self._mark_exceeded(reason)
             
             # Check bandwidth limit
-            if self.limits.max_bandwidth_mb:
+            elif self.limits.max_bandwidth_mb:
                 mb_downloaded = self._bytes_downloaded / (1024 * 1024)
                 if mb_downloaded >= self.limits.max_bandwidth_mb:
                     reason = f"Bandwidth limit reached ({self.limits.max_bandwidth_mb}MB)"
-                    self._mark_exceeded(reason)
-                    return False, reason
+                    callback_info = self._mark_exceeded(reason)
             
-            return True, None
+            if callback_info:
+                exceeded_reason = self._exceeded_reason
+        
+        # Trigger callback outside the lock to avoid deadlock
+        if callback_info and callback_info[1]:  # callback_info[1] indicates if callback exists
+            self._trigger_callback(callback_info[0])
+            return False, callback_info[0]
+        elif callback_info:
+            return False, callback_info[0]
+        
+        return True, None
     
-    def can_download_file(self, file_size_bytes: int) -> tuple[bool, Optional[str]]:
+    def can_download_file(self, file_size_bytes: int) -> Tuple[bool, Optional[str]]:
         """
         Check if a file can be downloaded without exceeding budget.
-        
+
         Args:
             file_size_bytes: Size of file to download
-            
+
         Returns:
             Tuple of (can_download, reason)
         """
@@ -171,11 +186,16 @@ class BudgetTracker:
                         f"bandwidth={self._bytes_downloaded / (1024 * 1024):.2f}MB")
     
     def _mark_exceeded(self, reason: str):
-        """Mark budget as exceeded and trigger callback."""
+        """Mark budget as exceeded and return callback info."""
         self._budget_exceeded = True
         self._exceeded_reason = reason
         logger.warning(f"Budget exceeded: {reason}")
         
+        # Return callback info to be invoked outside the lock
+        return (reason, self._on_budget_exceeded is not None)
+    
+    def _trigger_callback(self, reason: str):
+        """Trigger the budget exceeded callback outside of the lock."""
         if self._on_budget_exceeded:
             try:
                 stats = self.get_stats()
@@ -239,7 +259,7 @@ class BudgetTracker:
         with self._lock:
             self._pages_crawled = 0
             self._bytes_downloaded = 0
-            self._start_time = None
+            self._start_time = time.time() if self.limits.max_time_seconds else None
             self._budget_exceeded = False
             self._exceeded_reason = None
             logger.debug("Budget tracker reset")
@@ -259,4 +279,6 @@ class AsyncBudgetTracker(BudgetTracker):
         super().__init__(*args, **kwargs)
         # Note: We keep threading.Lock as it works in both sync and async contexts
         # For a pure async implementation, use asyncio.Lock
+
+
 

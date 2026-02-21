@@ -7,12 +7,23 @@ import pytest
 import time
 import threading
 
+# Check if optional dependencies are available
+try:
+    import pika
+    PIKA_AVAILABLE = True
+except ImportError:
+    PIKA_AVAILABLE = False
 
+try:
+    import kafka
+    KAFKA_AVAILABLE = True
+except ImportError:
+    KAFKA_AVAILABLE = False
+
+
+@pytest.mark.integration
 @pytest.mark.distributed
-@pytest.mark.skipif(
-    not pytest.importorskip("pika", minversion="1.0.0"),
-    reason="RabbitMQ dependencies not installed"
-)
+@pytest.mark.skipif(not PIKA_AVAILABLE, reason="RabbitMQ dependencies not installed")
 class TestRabbitMQDistributed:
     """Tests for distributed crawling with RabbitMQ."""
     
@@ -138,11 +149,9 @@ class TestRabbitMQDistributed:
         producer.close()
 
 
+@pytest.mark.integration
 @pytest.mark.distributed
-@pytest.mark.skipif(
-    not pytest.importorskip("kafka", minversion="2.0.0"),
-    reason="Kafka dependencies not installed"
-)
+@pytest.mark.skipif(not KAFKA_AVAILABLE, reason="Kafka dependencies not installed")
 class TestKafkaDistributed:
     """Tests for distributed crawling with Kafka."""
     
@@ -188,25 +197,22 @@ class TestKafkaDistributed:
         consumer.close()
 
 
+@pytest.mark.integration
 class TestDistributedCrawlingEdgeCases:
     """Edge case tests for distributed crawling."""
     
-    @pytest.mark.skipif(
-        not pytest.importorskip("pika"),
-        reason="RabbitMQ dependencies not installed"
-    )
+    @pytest.mark.skipif(not PIKA_AVAILABLE, reason="RabbitMQ dependencies not installed")
     def test_connection_recovery(self):
         """Test recovery from connection failures."""
         # This would test reconnection logic
         # For now, placeholder
         pass
     
-    @pytest.mark.skipif(
-        not pytest.importorskip("pika"),
-        reason="RabbitMQ dependencies not installed"
-    )
     def test_message_serialization(self):
         """Test proper serialization of complex messages."""
+        if not PIKA_AVAILABLE:
+            pytest.skip("RabbitMQ dependencies not installed")
+        
         from crawlit.distributed.rabbitmq_queue import RabbitMQQueue
         
         # Test with complex message structure
@@ -221,7 +227,10 @@ class TestDistributedCrawlingEdgeCases:
         }
         
         # Should serialize and deserialize correctly
-        queue = RabbitMQQueue(queue_name="test_serialization")
+        try:
+            queue = RabbitMQQueue(queue_name="test_serialization")
+        except Exception:
+            pytest.skip("RabbitMQ not available")
         
         try:
             queue.publish(complex_msg)
@@ -244,6 +253,7 @@ class TestDistributedCrawlingEdgeCases:
         pass
 
 
+@pytest.mark.integration
 class TestConnectionPoolExhaustion:
     """Tests for connection pool exhaustion scenarios."""
     
@@ -287,32 +297,28 @@ class TestConnectionPoolExhaustion:
         assert len(results) == 50
 
 
+@pytest.mark.integration
 class TestDatabaseConnectionFailures:
     """Tests for database connection failure handling."""
     
-    @pytest.mark.skipif(
-        not pytest.importorskip("psycopg2"),
-        reason="PostgreSQL dependencies not installed"
-    )
     def test_postgres_connection_failure(self):
         """Test handling of PostgreSQL connection failures."""
         from crawlit.storage.postgres_storage import PostgresStorage
         
-        # Try to connect to non-existent database
-        storage = PostgresStorage(
-            host="localhost",
-            port=5432,
-            database="nonexistent_db",
-            user="test",
-            password="test"
-        )
-        
-        # Should handle connection failure gracefully
+        # Try to connect to non-existent database - should fail during init
         try:
-            storage.save_page({"url": "http://example.com", "html": "test"})
+            storage = PostgresStorage(
+                host="localhost",
+                port=5432,
+                database="nonexistent_db",
+                user="test",
+                password="test"
+            )
+            # If we get here, PostgreSQL is running - test connection error
+            pytest.skip("PostgreSQL is running, cannot test connection failure")
         except Exception as e:
             # Should raise appropriate exception
-            assert "connection" in str(e).lower() or "database" in str(e).lower()
+            assert "connection" in str(e).lower() or "database" in str(e).lower() or "refused" in str(e).lower()
     
     @pytest.mark.skipif(
         not pytest.importorskip("pymongo"),
@@ -322,19 +328,19 @@ class TestDatabaseConnectionFailures:
         """Test handling of MongoDB connection failures."""
         from crawlit.storage.mongo_storage import MongoStorage
         
-        # Try to connect to non-existent MongoDB
-        storage = MongoStorage(
-            host="localhost",
-            port=27017,
-            database="test_db",
-            connection_timeout=1000
-        )
-        
-        # Should handle connection failure gracefully
+        # Try to connect to non-existent MongoDB - should fail during init
         try:
-            storage.save_page({"url": "http://example.com", "html": "test"})
+            storage = MongoStorage(
+                host="localhost",
+                port=27017,
+                database="test_db",
+                serverSelectionTimeoutMS=1000
+            )
+            # If we get here, MongoDB is running - test connection error  
+            pytest.skip("MongoDB is running, cannot test connection failure")
         except Exception as e:
-            assert "connection" in str(e).lower() or "timeout" in str(e).lower()
+            # Should raise appropriate exception
+            assert "connection" in str(e).lower() or "timeout" in str(e).lower() or "server" in str(e).lower()
     
     def test_connection_retry_logic(self):
         """Test automatic connection retry logic."""
@@ -342,6 +348,7 @@ class TestDatabaseConnectionFailures:
         pass
 
 
+@pytest.mark.integration
 class TestLargeFileHandling:
     """Tests for handling large files (GB-sized responses)."""
     

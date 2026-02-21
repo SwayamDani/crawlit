@@ -462,3 +462,5 @@ def extract_structured_data(html_content: str, url: str = "") -> StructuredData:
     extractor = StructuredDataExtractor(html_content, url)
     return extractor.extract_all()
 
+
+

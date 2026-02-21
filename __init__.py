@@ -12,6 +12,9 @@ from crawlit.crawler.engine import Crawler
 from crawlit.crawler.async_engine import AsyncCrawler
 from crawlit.output.formatters import save_results, generate_summary_report
 
+# Export utility modules
+from crawlit.utils.budget_tracker import BudgetTracker
+
 # Export extraction modules (v0.2.0+)
 from crawlit.extractors.tables import extract_tables, tables_to_csv, tables_to_dict, tables_to_json
 from crawlit.extractors.image_extractor import ImageTagParser
@@ -29,6 +32,9 @@ __all__ = [
     'save_results',      # Output formatters 
     'generate_summary_report',
     'cli_main',          # CLI entry point
+    
+    # Utility modules
+    'BudgetTracker',     # Budget tracking
     
     # Data extraction modules (v0.2.0+)
     'extract_tables',    # Table extraction

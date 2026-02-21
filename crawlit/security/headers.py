@@ -373,3 +373,5 @@ def analyze_security_headers(headers: Dict[str, str], url: str = "") -> Security
     analyzer = SecurityHeadersAnalyzer()
     return analyzer.analyze(headers, url)
 
+
+

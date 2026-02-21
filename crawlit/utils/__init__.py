@@ -28,7 +28,7 @@ from crawlit.utils.cookie_persistence import (
     save_cookies,
     load_cookies
 )
-from crawlit.utils.download_manager import DownloadManager
+from crawlit.utils.download_manager import DownloadManager, AsyncDownloadManager
 from crawlit.utils.incremental import IncrementalCrawler
 from crawlit.utils.scheduler import CrawlScheduler, ScheduledCrawl, is_croniter_available
 from crawlit.utils.logging_config import (
@@ -97,6 +97,7 @@ __all__ = [
     'save_cookies',
     'load_cookies',
     'DownloadManager',
+    'AsyncDownloadManager',
     'IncrementalCrawler',
     'CrawlScheduler',
     'ScheduledCrawl',

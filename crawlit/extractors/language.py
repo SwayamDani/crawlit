@@ -418,3 +418,5 @@ def detect_language(html_content: str, url: str = "") -> LanguageDetection:
     detector = LanguageDetector(html_content, url)
     return detector.detect()
 
+
+

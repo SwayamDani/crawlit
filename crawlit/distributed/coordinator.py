@@ -191,11 +191,11 @@ class CrawlCoordinator:
                 else:
                     self.stats['tasks_failed'] += 1
                     self.failed_urls.add(url)
-                
-                # Add new tasks for discovered links
-                if success and depth < self.max_depth:
-                    for link in links:
-                        self.add_task(link, depth=depth + 1, priority=max(0, 10 - depth))
+            
+            # Add new tasks for discovered links (outside the lock to avoid deadlock)
+            if success and depth < self.max_depth:
+                for link in links:
+                    self.add_task(link, depth=depth + 1, priority=max(0, 10 - depth))
             
             logger.debug(f"Result processed: {url} (success={success}, links={len(links)})")
             return True
@@ -584,4 +584,6 @@ class DistributedCrawler:
         self.coordinator.shutdown()
         self.mq.disconnect()
         logger.info("Distributed crawler shut down")
+
+
 

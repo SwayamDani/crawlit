@@ -20,14 +20,22 @@ class RateLimiter:
     and enforces delays between requests to the same domain.
     """
     
-    def __init__(self, default_delay: float = 0.1):
+    def __init__(self, default_delay: float = 0.1, requests_per_second: Optional[float] = None):
         """
         Initialize the rate limiter.
         
         Args:
             default_delay: Default delay in seconds between requests (global fallback)
+            requests_per_second: Alternative way to specify rate limit (converted to delay)
         """
-        self.default_delay = default_delay
+        # If requests_per_second is provided, convert to delay
+        if requests_per_second is not None:
+            if requests_per_second <= 0:
+                raise ValueError("requests_per_second must be positive")
+            self.default_delay = 1.0 / requests_per_second
+        else:
+            self.default_delay = default_delay
+            
         self._domain_delays: Dict[str, float] = {}  # Domain -> delay in seconds
         self._domain_last_request: Dict[str, float] = {}  # Domain -> last request timestamp
         self._lock = threading.Lock()  # Thread-safe access
@@ -83,6 +91,15 @@ class RateLimiter:
             
             self._domain_last_request[domain] = time.time()
     
+    def wait(self, url: str) -> None:
+        """
+        Wait if necessary to respect rate limiting (alias for wait_if_needed).
+        
+        Args:
+            url: URL or domain being requested
+        """
+        self.wait_if_needed(url)
+    
     async def wait_if_needed_async(self, url: str) -> None:
         """
         Wait if necessary to respect rate limiting for the domain (async version).
@@ -114,14 +131,24 @@ class RateLimiter:
         Extract domain from URL.
         
         Args:
-            url: Full URL
+            url: Full URL or domain name
             
         Returns:
             Domain name (e.g., "example.com")
         """
         try:
+            # If no scheme, add one for proper parsing
+            if not url.startswith(('http://', 'https://', '//')):
+                url = 'http://' + url
+            
             parsed = urlparse(url)
-            return parsed.netloc.lower()
+            domain = parsed.netloc.lower()
+            
+            # If still no netloc, might just be a domain name
+            if not domain and parsed.path:
+                domain = parsed.path.split('/')[0].lower()
+            
+            return domain or "unknown"
         except Exception:
             return "unknown"
     

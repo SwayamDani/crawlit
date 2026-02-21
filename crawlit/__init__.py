@@ -99,7 +99,6 @@ from crawlit.utils.database import (
 from crawlit.utils.proxy_manager import ProxyManager, Proxy
 
 # Export distributed crawling (v0.2.0+)
-DISTRIBUTED_AVAILABLE = False
 try:
     from crawlit.distributed import (
         MessageQueue,
@@ -113,7 +112,6 @@ try:
         DatabaseConnectionPool,
         HTTPConnectionPool
     )
-    DISTRIBUTED_AVAILABLE = True
 except ImportError:
     # Distributed features require optional dependencies
     pass
@@ -260,24 +258,17 @@ __all__ = [
     'CaptchaType',          # CAPTCHA type enum
     'detect_captcha',       # Convenience function
     
-    # Availability flags
-    'DISTRIBUTED_AVAILABLE',  # Whether distributed features are available
+    # Message queues
+    'MessageQueue',
+    'RabbitMQBackend',
+    'KafkaBackend',
+    'get_message_queue',
+    # Distributed crawling
+    'DistributedCrawler',
+    'CrawlWorker',
+    'CrawlCoordinator',
+    # Connection pooling
+    'ConnectionPool',
+    'DatabaseConnectionPool',
+    'HTTPConnectionPool',
 ]
-
-# Add distributed features to __all__ if available
-if DISTRIBUTED_AVAILABLE:
-    __all__.extend([
-        # Message queues
-        'MessageQueue',
-        'RabbitMQBackend',
-        'KafkaBackend',
-        'get_message_queue',
-        # Distributed crawling
-        'DistributedCrawler',
-        'CrawlWorker',
-        'CrawlCoordinator',
-        # Connection pooling
-        'ConnectionPool',
-        'DatabaseConnectionPool',
-        'HTTPConnectionPool',
-    ])

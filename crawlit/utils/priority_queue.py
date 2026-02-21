@@ -8,7 +8,8 @@ Provides priority-based URL queuing for more efficient crawling strategies.
 import logging
 import threading
 import asyncio
-from typing import Tuple, Optional, Dict, Any, Callable
+from abc import ABC, abstractmethod
+from typing import Tuple, Optional, Dict, Any, Callable, List
 from queue import PriorityQueue as ThreadSafePriorityQueue, Empty
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
@@ -34,22 +35,23 @@ class PrioritizedURL:
         return (self.url, self.depth)
 
 
-class PriorityStrategy:
-    """Base class for priority calculation strategies."""
-    
+class PriorityStrategy(ABC):
+    """Abstract base class for priority calculation strategies."""
+
+    @abstractmethod
     def calculate_priority(self, url: str, depth: int, metadata: Optional[Dict[str, Any]] = None) -> float:
         """
         Calculate priority for a URL.
-        
+
         Args:
             url: The URL to prioritize
             depth: Current crawl depth
             metadata: Optional metadata about the URL
-            
+
         Returns:
             Priority value (lower = higher priority)
         """
-        raise NotImplementedError
+        pass
 
 
 class BreadthFirstStrategy(PriorityStrategy):
@@ -122,11 +124,11 @@ class URLPatternStrategy(PriorityStrategy):
 
 class CompositeStrategy(PriorityStrategy):
     """Combine multiple strategies with weights."""
-    
-    def __init__(self, strategies: list[Tuple[PriorityStrategy, float]]):
+
+    def __init__(self, strategies: List[Tuple[PriorityStrategy, float]]):
         """
         Initialize with weighted strategies.
-        
+
         Args:
             strategies: List of (strategy, weight) tuples
         """
@@ -374,4 +376,6 @@ def get_strategy(strategy_name: str, **kwargs) -> PriorityStrategy:
     except TypeError:
         # Strategy doesn't accept kwargs
         return strategy_class()
+
+
 

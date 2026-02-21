@@ -340,3 +340,5 @@ class TestPriorityQueueEdgeCases:
         url, depth = queue.get()
         assert depth == 1
 
+
+

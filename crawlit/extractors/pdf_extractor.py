@@ -79,6 +79,30 @@ class PDFExtractor:
         
         logger.debug(f"PDF extractor initialized with backend: {self.backend}, OCR: {self.enable_ocr}")
     
+    def extract(self, pdf_bytes: bytes, extract_images: bool = True) -> Dict[str, Any]:
+        """
+        Extract text and metadata from PDF bytes.
+        
+        This is an alias for extract_from_bytes for backward compatibility with tests.
+        
+        Args:
+            pdf_bytes: PDF file as bytes
+            extract_images: Whether to extract images (currently ignored)
+            
+        Returns:
+            Dictionary containing:
+                - text: Extracted text content
+                - num_pages: Number of pages
+                - metadata: PDF metadata (title, author, etc.)
+                - success: Boolean indicating success
+                - error: Error message if failed
+        """
+        result = self.extract_from_bytes(pdf_bytes)
+        # Add num_pages alias for backward compatibility
+        if 'pages' in result:
+            result['num_pages'] = result['pages']
+        return result
+    
     def extract_from_bytes(self, pdf_bytes: bytes) -> Dict[str, Any]:
         """
         Extract text and metadata from PDF bytes.
@@ -263,7 +287,7 @@ class PDFExtractor:
         """
         cleaned = {}
         
-        # Common metadata fields
+        # Common metadata fields (support both with and without leading slash)
         field_mapping = {
             '/Title': 'title',
             '/Author': 'author',
@@ -273,17 +297,28 @@ class PDFExtractor:
             '/CreationDate': 'creation_date',
             '/ModDate': 'modification_date',
             '/Keywords': 'keywords',
+            'Title': 'title',
+            'Author': 'author',
+            'Subject': 'subject',
+            'Creator': 'creator',
+            'Producer': 'producer',
+            'CreationDate': 'creation_date',
+            'ModDate': 'modification_date',
+            'Keywords': 'keywords',
         }
         
         for key, value in metadata.items():
-            # Remove leading slash if present
-            clean_key = key.lstrip('/') if isinstance(key, str) else str(key)
-            
             # Use mapped name if available
             if key in field_mapping:
                 clean_key = field_mapping[key]
+            else:
+                # Remove leading slash if present
+                clean_key = key.lstrip('/') if isinstance(key, str) else str(key)
+                clean_key = clean_key.lower()
             
             # Convert value to string if needed
+            if value is not None:
+                cleaned[clean_key] = str(value)
             if value is not None:
                 cleaned[clean_key] = str(value)
         
@@ -335,4 +370,6 @@ def is_pdf_available() -> bool:
         True if at least one PDF library is available
     """
     return PDFPLUMBER_AVAILABLE or PYPDF2_AVAILABLE
+
+
 

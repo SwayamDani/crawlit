@@ -126,7 +126,11 @@ class JavaScriptRenderer:
         url: str,
         wait_for_selector: Optional[str] = None,
         wait_for_timeout: Optional[int] = None,
-        execute_script: Optional[str] = None
+        wait_for_network_idle: bool = False,
+        execute_script: Optional[str] = None,
+        execute_js: Optional[str] = None,
+        screenshot_path: Optional[str] = None,
+        full_page_screenshot: bool = True
     ) -> Dict[str, Any]:
         """
         Render a URL and return the fully loaded page content.
@@ -135,7 +139,11 @@ class JavaScriptRenderer:
             url: The URL to render
             wait_for_selector: Optional CSS selector to wait for before returning
             wait_for_timeout: Additional timeout to wait after page load (milliseconds)
+            wait_for_network_idle: Whether to wait for network idle before returning
             execute_script: Optional JavaScript to execute on the page
+            execute_js: Alias for execute_script (for backwards compatibility)
+            screenshot_path: Optional path to save screenshot
+            full_page_screenshot: Whether to capture full scrollable page (default: True)
             
         Returns:
             Dictionary containing:
@@ -143,12 +151,22 @@ class JavaScriptRenderer:
                 - html: The rendered HTML content (if successful)
                 - url: The final URL after redirects
                 - status_code: HTTP status code
+                - js_result: Result of JavaScript execution (if execute_js/execute_script provided)
+                - screenshot_path: Path to screenshot (if screenshot_path provided)
                 - error: Error message (if failed)
         """
         if not self.browser:
             self.start()
             
         page = None
+        result = {
+            "success": False,
+            "html": None,
+            "url": url,
+            "status_code": 0,
+            "error": None
+        }
+        
         try:
             logger.debug(f"Creating new page for URL: {url}")
             page = self.context.new_page()
@@ -156,21 +174,20 @@ class JavaScriptRenderer:
             # Set default timeout
             page.set_default_timeout(self.timeout)
             
-            logger.debug(f"Navigating to {url} (wait_until={self.wait_until})")
-            response = page.goto(url, wait_until=self.wait_until, timeout=self.timeout)
+            # Determine wait_until strategy
+            wait_strategy = "networkidle" if wait_for_network_idle else self.wait_until
+            
+            logger.debug(f"Navigating to {url} (wait_until={wait_strategy})")
+            response = page.goto(url, wait_until=wait_strategy, timeout=self.timeout)
             
             if response is None:
                 logger.warning(f"No response received for {url}")
-                return {
-                    "success": False,
-                    "html": None,
-                    "url": url,
-                    "status_code": 0,
-                    "error": "No response received"
-                }
+                result["error"] = "No response received"
+                return result
                 
             status_code = response.status
             logger.debug(f"Page loaded with status {status_code}")
+            result["status_code"] = status_code
             
             # Wait for specific selector if provided
             if wait_for_selector:
@@ -185,13 +202,25 @@ class JavaScriptRenderer:
                 logger.debug(f"Waiting additional {wait_for_timeout}ms")
                 page.wait_for_timeout(wait_for_timeout)
                 
-            # Execute custom JavaScript if provided
-            if execute_script:
+            # Execute custom JavaScript if provided (support both parameter names)
+            js_to_execute = execute_js or execute_script
+            if js_to_execute:
                 logger.debug("Executing custom JavaScript")
                 try:
-                    page.evaluate(execute_script)
+                    js_result = page.evaluate(js_to_execute)
+                    result["js_result"] = js_result
                 except Exception as e:
                     logger.warning(f"Script execution failed: {e}")
+                    result["js_result"] = None
+                    
+            # Capture screenshot if path provided
+            if screenshot_path:
+                logger.debug(f"Capturing screenshot to {screenshot_path}")
+                try:
+                    page.screenshot(path=screenshot_path, full_page=full_page_screenshot)
+                    result["screenshot_path"] = screenshot_path
+                except Exception as e:
+                    logger.warning(f"Screenshot capture failed: {e}")
                     
             # Get the fully rendered HTML
             html_content = page.content()
@@ -199,32 +228,22 @@ class JavaScriptRenderer:
             
             logger.debug(f"Successfully rendered {url} ({len(html_content)} bytes)")
             
-            return {
+            result.update({
                 "success": True,
                 "html": html_content,
-                "url": final_url,
-                "status_code": status_code,
-                "error": None
-            }
+                "url": final_url
+            })
+            
+            return result
             
         except SyncPlaywrightError as e:
             logger.error(f"Playwright error rendering {url}: {e}")
-            return {
-                "success": False,
-                "html": None,
-                "url": url,
-                "status_code": 0,
-                "error": f"Playwright error: {str(e)}"
-            }
+            result["error"] = f"Playwright error: {str(e)}"
+            return result
         except Exception as e:
             logger.exception(f"Unexpected error rendering {url}: {e}")
-            return {
-                "success": False,
-                "html": None,
-                "url": url,
-                "status_code": 0,
-                "error": f"Unexpected error: {str(e)}"
-            }
+            result["error"] = f"Unexpected error: {str(e)}"
+            return result
         finally:
             if page:
                 page.close()
@@ -442,7 +461,11 @@ class AsyncJavaScriptRenderer:
         url: str,
         wait_for_selector: Optional[str] = None,
         wait_for_timeout: Optional[int] = None,
-        execute_script: Optional[str] = None
+        wait_for_network_idle: bool = False,
+        execute_script: Optional[str] = None,
+        execute_js: Optional[str] = None,
+        screenshot_path: Optional[str] = None,
+        full_page_screenshot: bool = True
     ) -> Dict[str, Any]:
         """
         Render a URL asynchronously and return the fully loaded page content.
@@ -451,7 +474,11 @@ class AsyncJavaScriptRenderer:
             url: The URL to render
             wait_for_selector: Optional CSS selector to wait for before returning
             wait_for_timeout: Additional timeout to wait after page load (milliseconds)
+            wait_for_network_idle: Whether to wait for network idle before returning
             execute_script: Optional JavaScript to execute on the page
+            execute_js: Alias for execute_script (for backwards compatibility)
+            screenshot_path: Optional path to save screenshot
+            full_page_screenshot: Whether to capture full scrollable page (default: True)
             
         Returns:
             Dictionary containing:
@@ -459,12 +486,22 @@ class AsyncJavaScriptRenderer:
                 - html: The rendered HTML content (if successful)
                 - url: The final URL after redirects
                 - status_code: HTTP status code
+                - js_result: Result of JavaScript execution (if execute_js/execute_script provided)
+                - screenshot_path: Path to screenshot (if screenshot_path provided)
                 - error: Error message (if failed)
         """
         if not self.browser:
             await self.start()
             
         page = None
+        result = {
+            "success": False,
+            "html": None,
+            "url": url,
+            "status_code": 0,
+            "error": None
+        }
+        
         try:
             logger.debug(f"Creating new page for URL: {url}")
             page = await self.context.new_page()
@@ -472,21 +509,20 @@ class AsyncJavaScriptRenderer:
             # Set default timeout
             page.set_default_timeout(self.timeout)
             
-            logger.debug(f"Navigating to {url} (wait_until={self.wait_until})")
-            response = await page.goto(url, wait_until=self.wait_until, timeout=self.timeout)
+            # Determine wait_until strategy
+            wait_strategy = "networkidle" if wait_for_network_idle else self.wait_until
+            
+            logger.debug(f"Navigating to {url} (wait_until={wait_strategy})")
+            response = await page.goto(url, wait_until=wait_strategy, timeout=self.timeout)
             
             if response is None:
                 logger.warning(f"No response received for {url}")
-                return {
-                    "success": False,
-                    "html": None,
-                    "url": url,
-                    "status_code": 0,
-                    "error": "No response received"
-                }
+                result["error"] = "No response received"
+                return result
                 
             status_code = response.status
             logger.debug(f"Page loaded with status {status_code}")
+            result["status_code"] = status_code
             
             # Wait for specific selector if provided
             if wait_for_selector:
@@ -501,13 +537,25 @@ class AsyncJavaScriptRenderer:
                 logger.debug(f"Waiting additional {wait_for_timeout}ms")
                 await page.wait_for_timeout(wait_for_timeout)
                 
-            # Execute custom JavaScript if provided
-            if execute_script:
+            # Execute custom JavaScript if provided (support both parameter names)
+            js_to_execute = execute_js or execute_script
+            if js_to_execute:
                 logger.debug("Executing custom JavaScript")
                 try:
-                    await page.evaluate(execute_script)
+                    js_result = await page.evaluate(js_to_execute)
+                    result["js_result"] = js_result
                 except Exception as e:
                     logger.warning(f"Script execution failed: {e}")
+                    result["js_result"] = None
+                    
+            # Capture screenshot if path provided
+            if screenshot_path:
+                logger.debug(f"Capturing screenshot to {screenshot_path}")
+                try:
+                    await page.screenshot(path=screenshot_path, full_page=full_page_screenshot)
+                    result["screenshot_path"] = screenshot_path
+                except Exception as e:
+                    logger.warning(f"Screenshot capture failed: {e}")
                     
             # Get the fully rendered HTML
             html_content = await page.content()
@@ -515,32 +563,22 @@ class AsyncJavaScriptRenderer:
             
             logger.debug(f"Successfully rendered {url} ({len(html_content)} bytes)")
             
-            return {
+            result.update({
                 "success": True,
                 "html": html_content,
-                "url": final_url,
-                "status_code": status_code,
-                "error": None
-            }
+                "url": final_url
+            })
+            
+            return result
             
         except PlaywrightError as e:
             logger.error(f"Playwright error rendering {url}: {e}")
-            return {
-                "success": False,
-                "html": None,
-                "url": url,
-                "status_code": 0,
-                "error": f"Playwright error: {str(e)}"
-            }
+            result["error"] = f"Playwright error: {str(e)}"
+            return result
         except Exception as e:
             logger.exception(f"Unexpected error rendering {url}: {e}")
-            return {
-                "success": False,
-                "html": None,
-                "url": url,
-                "status_code": 0,
-                "error": f"Unexpected error: {str(e)}"
-            }
+            result["error"] = f"Unexpected error: {str(e)}"
+            return result
         finally:
             if page:
                 await page.close()
