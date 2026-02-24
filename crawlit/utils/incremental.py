@@ -718,3 +718,4 @@ class IncrementalCrawler:
             logger.error(f"Failed to check if {url} should be crawled: {e}")
             return True, f"error: {e}"
 
+
