@@ -310,7 +310,7 @@ class AsyncCrawler:
             
     async def crawl(self):
         """Start the asynchronous crawling process"""
-        # Initialise asyncio primitives here — inside a running event loop —
+        # Initialize asyncio primitives here — inside a running event loop —
         # so they bind to the correct loop (required for Python 3.10+).
         self.queue = asyncio.Queue()
         self.semaphore = asyncio.Semaphore(self.max_concurrent_requests)
