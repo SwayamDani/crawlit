@@ -18,6 +18,8 @@ classifiers = [
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Operating System :: OS Independent",
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -30,7 +32,6 @@ dependencies = [
     "html5lib>=1.1",
     "nltk>=3.6.0",
     "beautifulsoup4>=4.9.0",
-    "playwright>=1.40.0",
 ]
 
 [project.urls]
@@ -66,5 +67,15 @@ all = ["playwright>=1.40.0", "psycopg2-binary>=2.9.0", "pymongo>=4.0.0", "pika>=
 crawlit = "crawlit:cli_main"
 
 [tool.setuptools]
-packages = ["crawlit", "crawlit.crawler", "crawlit.output", "crawlit.extractors", "crawlit.utils"]
+packages = [
+    "crawlit",
+    "crawlit.crawler",
+    "crawlit.output",
+    "crawlit.extractors",
+    "crawlit.utils",
+    "crawlit.parser",
+    "crawlit.security",
+    "crawlit.storage",
+    "crawlit.distributed",
+]
 include-package-data = true

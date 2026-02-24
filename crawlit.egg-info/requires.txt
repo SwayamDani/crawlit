@@ -3,7 +3,6 @@ aiohttp>=3.8.0
 html5lib>=1.1
 nltk>=3.6.0
 beautifulsoup4>=4.9.0
-playwright>=1.40.0
 
 [all]
 playwright>=1.40.0

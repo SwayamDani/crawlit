@@ -127,41 +127,7 @@ class RobotsHandler:
         if parsed_url.query:
             path = f"{path}?{parsed_url.query}"
         
-        # Handle test domains specially
-        if domain == 'nonexistent.example.com':
-            # For nonexistent domains, we should allow everything (no robots.txt)
-            return True
-            
-        # Get the parser for this domain
-        parser = self.get_robots_parser(base_url)
-        
-        # Special handling for test cases
-        if 'localhost' in domain:  # For the test server
-            # Handle specific paths for test cases
-            if path.startswith('/private/') and not path.startswith('/private/allowed/'):
-                # /private/ paths should be disallowed unless they're /private/allowed/
-                logger.info(f"Skipping {url} (disallowed by robots.txt - matches /private/ rule)")
-                self.skipped_paths.append(url)
-                return False
-                
-            elif path.startswith('/private/allowed/'):
-                # /private/allowed/ paths should be allowed
-                logger.info(f"Allowing {url} (matches Allow directive in robots.txt)")
-                return True
-                
-            elif path.startswith('/crawlit-only/') and 'crawlit' in user_agent.lower():
-                # /crawlit-only/ paths should be disallowed for crawlit user agent
-                logger.info(f"Skipping {url} (disallowed by robots.txt for {user_agent})")
-                self.skipped_paths.append(url)
-                return False
-                
-            elif path.startswith('/test-only/') and 'test-agent' in user_agent.lower():
-                # /test-only/ paths should be disallowed for test-agent user agent
-                logger.info(f"Skipping {url} (disallowed by robots.txt for {user_agent})")
-                self.skipped_paths.append(url)
-                return False
-        
-        # For all other cases, use the standard parser
+        # Get the parser for this domain and use the standard parser
         is_allowed = parser.can_fetch(user_agent, path)
         
         if not is_allowed:

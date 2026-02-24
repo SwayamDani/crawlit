@@ -12,6 +12,8 @@ Classifier: Programming Language :: Python :: 3
 Classifier: Programming Language :: Python :: 3.8
 Classifier: Programming Language :: Python :: 3.9
 Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
 Classifier: Operating System :: OS Independent
 Classifier: Development Status :: 4 - Beta
 Classifier: Intended Audience :: Developers
@@ -25,7 +27,6 @@ Requires-Dist: aiohttp>=3.8.0
 Requires-Dist: html5lib>=1.1
 Requires-Dist: nltk>=3.6.0
 Requires-Dist: beautifulsoup4>=4.9.0
-Requires-Dist: playwright>=1.40.0
 Provides-Extra: cli
 Provides-Extra: js
 Requires-Dist: playwright>=1.40.0; extra == "js"
