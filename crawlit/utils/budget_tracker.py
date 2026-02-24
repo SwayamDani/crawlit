@@ -254,6 +254,12 @@ class BudgetTracker:
             
             return stats
     
+    def start(self):
+        """Start time tracking for the budget tracker."""
+        with self._lock:
+            self._start_time = time.time()
+            logger.debug("Budget tracker started")
+
     def reset(self):
         """Reset all counters and budget exceeded flag."""
         with self._lock:

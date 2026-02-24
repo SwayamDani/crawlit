@@ -1,10 +1,9 @@
+CLI_FEATURES.md
 LICENSE
 MANIFEST.in
 PUBLISH_INSTRUCTIONS.md
 README.md
 RELEASE_NOTES.md
-TESTING.md
-TEST_COVERAGE_SUMMARY.md
 pyproject.toml
 requirements.txt
 setup.py
@@ -55,8 +54,11 @@ crawlit/utils/storage.py
 crawlit/utils/url_filter.py
 examples/advanced_extraction_demo.py
 examples/auth_example.py
+examples/database_availability_check.py
+examples/database_integration.py
 examples/distributed_crawling_example.py
 examples/env_config_example.py
+examples/javascript_rendering.py
 examples/proxy_usage_example.py
 examples/security_demo.py
 tests/README.md
