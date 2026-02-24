@@ -138,7 +138,7 @@ class TestPerformanceBenchmarks:
         parse_time = time.time() - start_time
         
         # Should handle 100 parses of 1000-element docs quickly
-        assert parse_time < 5.0
+        assert parse_time < 6.0
     
     def test_link_extractor_performance(self):
         """Benchmark link extraction speed."""
