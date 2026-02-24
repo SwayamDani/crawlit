@@ -23,7 +23,6 @@ License-File: LICENSE
 Requires-Dist: requests>=2.25.0
 Requires-Dist: aiohttp>=3.8.0
 Requires-Dist: html5lib>=1.1
-Requires-Dist: nltk>=3.6.0
 Requires-Dist: beautifulsoup4>=4.9.0
 Provides-Extra: cli
 

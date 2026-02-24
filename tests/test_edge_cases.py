@@ -150,15 +150,13 @@ class TestEdgeCases:
     
     def test_crawler_with_invalid_url(self):
         """Test crawler handling of invalid URLs"""
-        # This should be handled gracefully without crashing
-        # Note: Actual URL validation happens in fetcher
-        crawler = Crawler(
-            start_url="not-a-valid-url",
-            max_depth=1
-        )
-        
-        # Should initialize without error
-        assert crawler.start_url == "not-a-valid-url"
+        # URLs with disallowed schemes (not http/https) must be rejected early
+        # to prevent SSRF attacks.
+        with pytest.raises(ValueError, match="Only 'http' and 'https' schemes"):
+            Crawler(
+                start_url="not-a-valid-url",
+                max_depth=1
+            )
     
     def test_extract_keywords_minimal_content(self):
         """Test keyword extraction with minimal content"""

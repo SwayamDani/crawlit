@@ -175,3 +175,26 @@ class URLFilter:
             ]
         )
 
+
+_ALLOWED_SCHEMES = {"http", "https"}
+
+
+def validate_url(url: str) -> bool:
+    """
+    Validate that a URL uses an allowed scheme (http or https).
+
+    This is a minimal SSRF safeguard that rejects non-HTTP(S) URLs such as
+    ``file://``, ``ftp://``, ``javascript:``, etc. before they are fetched.
+
+    Args:
+        url: The URL string to validate.
+
+    Returns:
+        True if the URL scheme is ``http`` or ``https``, False otherwise.
+    """
+    try:
+        parsed = urlparse(url)
+        return parsed.scheme in _ALLOWED_SCHEMES
+    except (ValueError, AttributeError):
+        return False
+

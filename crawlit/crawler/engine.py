@@ -7,6 +7,7 @@ import logging
 import re
 import time
 import threading
+import requests
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Set, List, Any, Optional, Tuple
@@ -28,6 +29,7 @@ from ..utils.storage import StorageManager
 from ..utils.sitemap import SitemapParser, get_sitemaps_from_robots
 from ..utils.rate_limiter import RateLimiter
 from ..utils.deduplication import ContentDeduplicator
+from ..utils.url_filter import URLFilter, validate_url
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +104,10 @@ class Crawler:
             use_sitemap (bool, optional): Whether to discover and use sitemaps for URL discovery. Defaults to False.
             sitemap_urls (List[str], optional): Explicit list of sitemap URLs to parse. If not provided, will try to discover from robots.txt or common locations.
         """
+        if not validate_url(start_url):
+            raise ValueError(
+                f"Invalid start URL: {start_url!r}. Only 'http' and 'https' schemes are supported."
+            )
         self.start_url: str = start_url
         self.max_depth: int = max_depth
         self.internal_only: bool = internal_only
@@ -122,6 +128,7 @@ class Crawler:
         self._results_lock: threading.Lock = threading.Lock()
         self._delay_lock: threading.Lock = threading.Lock()
         self._last_request_time: float = 0.0
+        self._thread_local: threading.local = threading.local()  # Per-thread session storage
         
         # Request parameters
         self.user_agent: str = user_agent
@@ -417,8 +424,8 @@ class Crawler:
                         if depth > self.max_depth:
                             continue
                     
-                    # Submit task to thread pool
-                    future = executor.submit(self._process_url, current_url, depth, session)
+                    # Submit task to thread pool — each thread gets its own session
+                    future = executor.submit(self._process_url, current_url, depth, None)
                     futures[future] = (current_url, depth)
                 
                 # Process completed tasks
@@ -438,8 +445,24 @@ class Crawler:
                         # Some futures are still running, continue loop
                         pass
     
+    def _get_thread_session(self) -> requests.Session:
+        """Get or create an isolated requests.Session for the current thread.
+
+        requests.Session is not thread-safe, so each worker thread must own its
+        own session.  Sessions are created lazily via threading.local() and
+        inherit the same headers, authentication, cookies, and retry strategy
+        that the shared SessionManager was configured with.
+        """
+        if not hasattr(self._thread_local, 'session'):
+            self._thread_local.session = self.session_manager.create_session()
+        return self._thread_local.session
+
     def _process_url(self, url: str, depth: int, session) -> None:
         """Process a single URL (thread-safe)"""
+        # If no session provided, use a thread-local session to avoid sharing
+        # a single requests.Session across multiple threads (not thread-safe).
+        if session is None:
+            session = self._get_thread_session()
         # Apply per-domain rate limiting if enabled
         if self.use_per_domain_delay:
             # Check for crawl-delay from robots.txt if available
@@ -703,6 +726,11 @@ class Crawler:
     
     def _should_crawl(self, url: str) -> bool:
         """Determine if a URL should be crawled based on settings"""
+        # Reject URLs with disallowed schemes (e.g. file://, javascript:, ftp://)
+        if not validate_url(url):
+            logger.debug(f"Skipping URL with disallowed scheme: {url}")
+            return False
+
         # Check if URL is already visited (thread-safe)
         with self._visited_lock:
             if url in self.visited_urls:

@@ -28,6 +28,7 @@ from crawlit.compat import ensure_response_compatibility, is_async_context
 from crawlit.utils import (
     SessionManager,
     URLFilter,
+    validate_url,
     ProgressTracker,
     create_progress_callback,
     QueueManager,
@@ -80,6 +81,7 @@ __all__ = [
     # Utility modules
     'SessionManager',    # Session management
     'URLFilter',         # URL filtering
+    'validate_url',      # URL scheme validation (SSRF safeguard)
     'ProgressTracker',   # Progress tracking
     'create_progress_callback',  # Progress callback helper
     'QueueManager',      # Queue management

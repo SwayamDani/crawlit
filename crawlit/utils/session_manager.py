@@ -90,6 +90,57 @@ class SessionManager:
         
         return headers
     
+    def create_session(self) -> requests.Session:
+        """
+        Create a new independent synchronous requests.Session with the same configuration.
+        Use this instead of get_sync_session() when thread isolation is required,
+        since requests.Session is not thread-safe.
+        
+        Returns:
+            A freshly configured requests.Session instance
+        """
+        session = requests.Session()
+        
+        # Set default headers
+        default_headers = {
+            "User-Agent": self.user_agent,
+            "Accept": "text/html,application/xhtml+xml,application/xml",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+        
+        # Add custom headers (including auth headers)
+        auth_headers = self._build_headers()
+        default_headers.update(auth_headers)
+        
+        session.headers.update(default_headers)
+        
+        # Set authentication if provided
+        if self._auth:
+            if isinstance(self._auth, (HTTPBasicAuth, HTTPDigestAuth)):
+                session.auth = self._auth
+            elif isinstance(self._auth, tuple) and len(self._auth) == 2:
+                session.auth = HTTPBasicAuth(self._auth[0], self._auth[1])
+        
+        # Set initial cookies if provided
+        if self._initial_cookies:
+            session.cookies.update(self._initial_cookies)
+        
+        # Configure retry strategy
+        retry_strategy = Retry(
+            total=self.max_retries,
+            backoff_factor=0.5,
+            status_forcelist=[500, 502, 503, 504],
+            allowed_methods=["GET", "HEAD"]
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        
+        # Set SSL verification
+        session.verify = self.verify_ssl
+        
+        return session
+
     def get_sync_session(self) -> requests.Session:
         """
         Get or create a synchronous requests.Session.

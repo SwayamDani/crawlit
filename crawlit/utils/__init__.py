@@ -3,7 +3,7 @@ Utility modules for crawlit
 """
 
 from crawlit.utils.session_manager import SessionManager
-from crawlit.utils.url_filter import URLFilter
+from crawlit.utils.url_filter import URLFilter, validate_url
 from crawlit.utils.progress import ProgressTracker, create_progress_callback
 from crawlit.utils.queue_manager import QueueManager
 from crawlit.utils.cache import PageCache, CrawlResume
@@ -31,6 +31,7 @@ from crawlit.utils.errors import (
 __all__ = [
     'SessionManager',
     'URLFilter',
+    'validate_url',
     'ProgressTracker',
     'create_progress_callback',
     'QueueManager',
