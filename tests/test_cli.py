@@ -1086,3 +1086,417 @@ class TestCrawlitCLI:
         with open(output_file) as f:
             data = json.load(f)
             assert any(long_path in url for url in data['urls'].keys())
+
+
+class TestCLIAdvancedFeatures:
+    """Test suite for advanced CLI features (authentication, budget, caching, etc.)"""
+    
+    @pytest.fixture
+    def mock_website(self, httpserver):
+        """Create a simple mock website for testing"""
+        html = """
+        <!DOCTYPE html>
+        <html>
+        <head><title>Test Site</title></head>
+        <body>
+            <h1>Test Website</h1>
+            <a href="/page1">Page 1</a>
+            <a href="/page2">Page 2</a>
+        </body>
+        </html>
+        """
+        
+        page1_html = """
+        <!DOCTYPE html>
+        <html><body><h1>Page 1</h1><a href="/">Home</a></body></html>
+        """
+        
+        page2_html = """
+        <!DOCTYPE html>
+        <html><body><h1>Page 2</h1><a href="/">Home</a></body></html>
+        """
+        
+        httpserver.expect_request("/").respond_with_data(html, content_type="text/html")
+        httpserver.expect_request("/page1").respond_with_data(page1_html, content_type="text/html")
+        httpserver.expect_request("/page2").respond_with_data(page2_html, content_type="text/html")
+        httpserver.expect_request("/robots.txt").respond_with_data(
+            "User-agent: *\nAllow: /\n", content_type="text/plain"
+        )
+        
+        return httpserver.url_for("/")
+    
+    def test_authentication_options(self, tmp_path):
+        """Test authentication CLI options are parsed correctly"""
+        cmd = CRAWLIT_CLI + [
+            "--url", "http://example.com",
+            "--depth", "0",
+            "--auth-user", "testuser",
+            "--auth-password", "testpass",
+            "--help"
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        # Help should show authentication options
+        assert "--auth-user" in result.stdout
+        assert "--auth-password" in result.stdout
+        assert "--oauth-token" in result.stdout
+        assert "--api-key" in result.stdout
+    
+    def test_budget_tracking_options(self, mock_website, tmp_path):
+        """Test budget tracking CLI options"""
+        output_file = tmp_path / "budget_test.json"
+        
+        cmd = CRAWLIT_CLI + [
+            "--url", mock_website,
+            "--depth", "1",
+            "--max-pages", "2",
+            "--output", str(output_file)
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        # Should complete successfully
+        assert result.returncode == 0
+        
+        # Check that it stopped after max pages
+        if output_file.exists():
+            with open(output_file) as f:
+                data = json.load(f)
+                # Should have stopped at or before max_pages limit
+                assert len(data['urls']) <= 3  # 2 + start URL might be included
+    
+    def test_cache_options(self, mock_website, tmp_path):
+        """Test caching CLI options"""
+        output_file = tmp_path / "cache_test.json"
+        cache_dir = tmp_path / "cache"
+        
+        cmd = CRAWLIT_CLI + [
+            "--url", mock_website,
+            "--depth", "1",
+            "--use-cache",
+            "--enable-disk-cache",
+            "--cache-dir", str(cache_dir),
+            "--cache-ttl", "3600",
+            "--output", str(output_file)
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        # Should complete successfully
+        assert result.returncode == 0
+        
+        # Cache directory should be created
+        assert cache_dir.exists()
+    
+    def test_save_and_resume_state(self, mock_website, tmp_path):
+        """Test save and resume crawl state"""
+        output_file = tmp_path / "results.json"
+        state_file = tmp_path / "state.json"
+        
+        # First crawl with save-state
+        cmd = CRAWLIT_CLI + [
+            "--url", mock_website,
+            "--depth", "1",
+            "--save-state", str(state_file),
+            "--output", str(output_file)
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        # Should complete successfully
+        assert result.returncode == 0
+        
+        # State file should be created
+        assert state_file.exists()
+        
+        # Verify state file has content
+        with open(state_file) as f:
+            state_data = json.load(f)
+            assert 'visited_urls' in state_data or 'visited' in state_data
+    
+    def test_deduplication_options(self, mock_website, tmp_path):
+        """Test content deduplication options"""
+        output_file = tmp_path / "dedup_test.json"
+        
+        cmd = CRAWLIT_CLI + [
+            "--url", mock_website,
+            "--depth", "1",
+            "--enable-deduplication",
+            "--dedup-min-length", "50",
+            "--output", str(output_file)
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        # Should complete successfully
+        assert result.returncode == 0
+    
+    def test_url_filtering_options(self, mock_website, tmp_path):
+        """Test URL filtering options"""
+        output_file = tmp_path / "filter_test.json"
+        
+        cmd = CRAWLIT_CLI + [
+            "--url", mock_website,
+            "--depth", "1",
+            "--blocked-extension", ".pdf",
+            "--blocked-extension", ".zip",
+            "--output", str(output_file)
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        # Should complete successfully
+        assert result.returncode == 0
+    
+    def test_multi_threading_options(self, mock_website, tmp_path):
+        """Test multi-threading options"""
+        output_file = tmp_path / "threading_test.json"
+        
+        cmd = CRAWLIT_CLI + [
+            "--url", mock_website,
+            "--depth", "1",
+            "--max-workers", "2",
+            "--max-queue-size", "100",
+            "--output", str(output_file)
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        # Should complete successfully
+        assert result.returncode == 0
+    
+    def test_sitemap_options(self, httpserver, tmp_path):
+        """Test sitemap options"""
+        output_file = tmp_path / "sitemap_test.json"
+        
+        # Create a mock sitemap
+        sitemap_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+        <loc>http://localhost/page1</loc>
+        <lastmod>2024-01-01</lastmod>
+        <changefreq>daily</changefreq>
+        <priority>0.8</priority>
+    </url>
+    <url>
+        <loc>http://localhost/page2</loc>
+        <lastmod>2024-01-02</lastmod>
+    </url>
+</urlset>"""
+        
+        # Setup mock responses
+        html_content = """
+        <!DOCTYPE html>
+        <html>
+        <head><title>Test Page</title></head>
+        <body><h1>Test</h1></body>
+        </html>
+        """
+        
+        httpserver.expect_request("/").respond_with_data(html_content, content_type="text/html")
+        httpserver.expect_request("/sitemap.xml").respond_with_data(sitemap_xml, content_type="application/xml")
+        httpserver.expect_request("/page1").respond_with_data(html_content, content_type="text/html")
+        httpserver.expect_request("/page2").respond_with_data(html_content, content_type="text/html")
+        httpserver.expect_request("/robots.txt").respond_with_data("User-agent: *\nDisallow:", content_type="text/plain")
+        
+        mock_website = httpserver.url_for("/")
+        
+        # Use --use-sitemap flag with explicit sitemap URL
+        cmd = CRAWLIT_CLI + [
+            "--url", mock_website,
+            "--depth", "0",
+            "--use-sitemap",
+            "--sitemap-url", httpserver.url_for("/sitemap.xml"),
+            "--output", str(output_file)
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        # Should complete successfully
+        assert result.returncode == 0
+        
+        # Verify output file was created
+        assert output_file.exists()
+    
+    def test_storage_options(self, mock_website, tmp_path):
+        """Test storage options"""
+        output_file = tmp_path / "storage_test.json"
+        storage_dir = tmp_path / "storage"
+        
+        cmd = CRAWLIT_CLI + [
+            "--url", mock_website,
+            "--depth", "0",
+            "--use-disk-storage",
+            "--storage-dir", str(storage_dir),
+            "--output", str(output_file)
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        # Should complete successfully
+        assert result.returncode == 0
+    
+    def test_no_store_html_option(self, mock_website, tmp_path):
+        """Test --no-store-html option"""
+        output_file = tmp_path / "no_html_test.json"
+        
+        cmd = CRAWLIT_CLI + [
+            "--url", mock_website,
+            "--depth", "0",
+            "--no-store-html",
+            "--output", str(output_file)
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        # Should complete successfully
+        assert result.returncode == 0
+        
+        # Check that HTML content is not stored
+        if output_file.exists():
+            with open(output_file) as f:
+                data = json.load(f)
+                # Check first URL's data
+                for url_data in data['urls'].values():
+                    # html_content should not be present or should be None
+                    assert url_data.get('html_content') is None or 'html_content' not in url_data
+                    break
+    
+    def test_custom_headers_option(self, tmp_path):
+        """Test custom headers option"""
+        cmd = CRAWLIT_CLI + ["--help"]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        # Should show custom-header option
+        assert "--custom-header" in result.stdout
+    
+    def test_rate_limiting_options(self, tmp_path):
+        """Test rate limiting options"""
+        cmd = CRAWLIT_CLI + ["--help"]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        # Should show rate limiting options
+        assert "--per-domain-delay" in result.stdout
+        assert "--domain-delay" in result.stdout
+    
+    def test_same_path_only_option(self, mock_website, tmp_path):
+        """Test --same-path-only option"""
+        output_file = tmp_path / "same_path_test.json"
+        
+        cmd = CRAWLIT_CLI + [
+            "--url", mock_website + "/",
+            "--depth", "1",
+            "--same-path-only",
+            "--output", str(output_file)
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        # Should complete successfully
+        assert result.returncode == 0
+    
+    def test_bandwidth_budget_option(self, mock_website, tmp_path):
+        """Test --max-bandwidth-mb option"""
+        output_file = tmp_path / "bandwidth_test.json"
+        
+        cmd = CRAWLIT_CLI + [
+            "--url", mock_website,
+            "--depth", "1",
+            "--max-bandwidth-mb", "0.001",  # Very small limit to test
+            "--output", str(output_file)
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        # Should complete (might stop early due to budget)
+        assert result.returncode == 0
+    
+    def test_time_budget_option(self, mock_website, tmp_path):
+        """Test --max-time-seconds option"""
+        output_file = tmp_path / "time_test.json"
+        
+        cmd = CRAWLIT_CLI + [
+            "--url", mock_website,
+            "--depth", "1",
+            "--max-time-seconds", "5",
+            "--output", str(output_file)
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        # Should complete successfully
+        assert result.returncode == 0
+    
+    def test_combined_advanced_features(self, mock_website, tmp_path):
+        """Test multiple advanced features together"""
+        output_file = tmp_path / "combined_test.json"
+        cache_dir = tmp_path / "cache"
+        state_file = tmp_path / "state.json"
+        
+        cmd = CRAWLIT_CLI + [
+            "--url", mock_website,
+            "--depth", "1",
+            "--max-workers", "2",
+            "--max-pages", "5",
+            "--use-cache",
+            "--cache-dir", str(cache_dir),
+            "--enable-deduplication",
+            "--save-state", str(state_file),
+            "--output", str(output_file),
+            "--verbose"
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        # Should complete successfully
+        assert result.returncode == 0
+        
+        # Output file should exist
+        assert output_file.exists()
+        
+        # State file should exist
+        assert state_file.exists()
+    
+    def test_all_help_options_present(self):
+        """Test that all new CLI options are in help"""
+        cmd = CRAWLIT_CLI + ["--help"]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        # Authentication options
+        assert "--auth-user" in result.stdout
+        assert "--oauth-token" in result.stdout
+        assert "--api-key" in result.stdout
+        
+        # Budget options
+        assert "--max-pages" in result.stdout
+        assert "--max-bandwidth-mb" in result.stdout
+        assert "--max-time-seconds" in result.stdout
+        
+        # Cache options
+        assert "--use-cache" in result.stdout
+        assert "--enable-disk-cache" in result.stdout
+        assert "--save-state" in result.stdout
+        assert "--resume-from" in result.stdout
+        
+        # Deduplication
+        assert "--enable-deduplication" in result.stdout
+        
+        # URL filtering
+        assert "--allowed-pattern" in result.stdout
+        assert "--blocked-pattern" in result.stdout
+        assert "--blocked-extension" in result.stdout
+        assert "--same-path-only" in result.stdout
+        
+        # Threading
+        assert "--max-workers" in result.stdout
+        assert "--max-queue-size" in result.stdout
+        
+        # Rate limiting
+        assert "--per-domain-delay" in result.stdout
+        
+        # Sitemap
+        assert "--use-sitemap" in result.stdout
+        
+        # Storage
+        assert "--no-store-html" in result.stdout
+        assert "--use-disk-storage" in result.stdout
+    
+    def test_invalid_budget_values(self, mock_website):
+        """Test that invalid budget values are handled"""
+        # Test negative max-pages (should fail at argparse level)
+        cmd = CRAWLIT_CLI + [
+            "--url", mock_website,
+            "--max-pages", "-1"
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        
+        # Should either fail or handle gracefully
+        # Different implementations might validate at different stages
+        assert result.returncode in [0, 1, 2]

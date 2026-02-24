@@ -103,6 +103,43 @@ class TestPageCache:
 class TestCrawlResume:
     """Test crawl resume functionality"""
     
+    @pytest.fixture
+    def mock_website(self, httpserver):
+        """Create a simple mock website for testing"""
+        html = """
+        <!DOCTYPE html>
+        <html>
+        <head><title>Cache Test Site</title></head>
+        <body>
+            <h1>Cache Test Website</h1>
+            <p>This is a test page for caching.</p>
+            <a href="/page1">Page 1</a>
+        </body>
+        </html>
+        """
+        
+        page1_html = """
+        <!DOCTYPE html>
+        <html>
+        <head><title>Page 1</title></head>
+        <body>
+            <h1>Page 1</h1>
+            <p>This is page 1.</p>
+        </body>
+        </html>
+        """
+        
+        httpserver.expect_request("/").respond_with_data(
+            html,
+            content_type="text/html"
+        )
+        httpserver.expect_request("/page1").respond_with_data(
+            page1_html,
+            content_type="text/html"
+        )
+        
+        return httpserver.url_for("/")
+    
     def test_can_resume(self, mock_website):
         """Test checking if resume is possible"""
         crawler = Crawler(
@@ -155,6 +192,43 @@ class TestCrawlResume:
 
 class TestCrawlerWithCache:
     """Test crawler integration with cache"""
+    
+    @pytest.fixture
+    def mock_website(self, httpserver):
+        """Create a simple mock website for testing"""
+        html = """
+        <!DOCTYPE html>
+        <html>
+        <head><title>Cache Test Site</title></head>
+        <body>
+            <h1>Cache Test Website</h1>
+            <p>This is a test page for caching.</p>
+            <a href="/page1">Page 1</a>
+        </body>
+        </html>
+        """
+        
+        page1_html = """
+        <!DOCTYPE html>
+        <html>
+        <head><title>Page 1</title></head>
+        <body>
+            <h1>Page 1</h1>
+            <p>This is page 1.</p>
+        </body>
+        </html>
+        """
+        
+        httpserver.expect_request("/").respond_with_data(
+            html,
+            content_type="text/html"
+        )
+        httpserver.expect_request("/page1").respond_with_data(
+            page1_html,
+            content_type="text/html"
+        )
+        
+        return httpserver.url_for("/")
     
     def test_crawler_with_cache(self, mock_website):
         """Test crawler using cache"""

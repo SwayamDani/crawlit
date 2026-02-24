@@ -10,6 +10,7 @@ A powerful, modular, and ethical web crawler built in Python. Designed for secur
 ### Core Crawling
 - **Modular Architecture**: Easily extend with custom modules and parsers
 - **Synchronous & Asynchronous**: Both sync (`Crawler`) and async (`AsyncCrawler`) implementations
+- **JavaScript Rendering**: Full support for SPAs and JavaScript-heavy websites (React, Vue, Angular) via Playwright
 - **Multi-threaded Support**: Thread pool support for concurrent requests in sync crawler
 - **Depth Control**: Set maximum crawl depth to prevent excessive resource usage
 - **Domain Filtering**: Restrict crawling to specific domains or subdomains
@@ -29,13 +30,25 @@ A powerful, modular, and ethical web crawler built in Python. Designed for secur
 - **Keyword Extraction**: Identify key terms and phrases from webpage content
 - **Content Extraction**: Optional metadata extraction (title, description, headings, canonical URLs)
 - **Content Deduplication**: Skip pages with duplicate content using SHA-256 hashing
+- **Form Detection**: Extract forms with field types, labels, validation rules, and special feature detection
+- **Structured Data Extraction**: Extract JSON-LD, Microdata, RDFa, Open Graph, Twitter Cards
+- **Advanced Language Detection**: Multi-method language detection beyond HTML lang attribute
 
 ### Data Management
+- **Database Integration**: Built-in support for SQLite, PostgreSQL, and MongoDB
 - **Page Caching**: Memory and disk-based caching with TTL support
 - **Storage Management**: Optional HTML content storage (memory or disk-based)
 - **Crawl Resume**: Save and resume interrupted crawls
 - **Progress Tracking**: Real-time progress monitoring with callbacks
 - **Multiple Output Formats**: Export results as JSON, CSV, TXT, or HTML
+
+### Security Features
+- **CSRF Token Handling**: Automatic extraction and management of CSRF tokens
+- **Security Headers Analysis**: Comprehensive security header analysis with ratings (A+ to F)
+- **WAF Detection**: Detect 17+ Web Application Firewalls (Cloudflare, AWS WAF, Akamai, etc.)
+- **Honeypot Detection**: Identify and avoid honeypot traps designed to catch bots
+- **Security Ratings**: Automated security scoring and vulnerability assessment
+- **Framework Support**: Django, Rails, ASP.NET, WordPress, Laravel, and more
 
 ### Advanced Features
 - **Sitemap Support**: Automatic sitemap discovery and parsing from robots.txt
@@ -45,10 +58,34 @@ A powerful, modular, and ethical web crawler built in Python. Designed for secur
 - **Command Line Interface**: Simple, powerful CLI for easy usage
 - **Programmatic API**: Use as a library in your own Python code
 
+### Performance & Scalability
+- **Distributed Crawling**: Scale across multiple machines with message queues
+- **Message Queue Integration**: RabbitMQ and Apache Kafka support
+- **Worker Pools**: Concurrent task processing with multiple workers
+- **Connection Pooling**: Reuse database and HTTP connections for 5x performance
+- **Enterprise Scale**: Handle thousands of requests per second
+
 ## 📋 Requirements
 
 - Python 3.8+
-- Dependencies (will be listed in requirements.txt)
+- Dependencies (automatically installed with pip):
+  - requests, aiohttp, beautifulsoup4, html5lib, nltk
+  - playwright (optional, for JavaScript rendering)
+
+### JavaScript Rendering Setup
+
+To enable JavaScript rendering for SPAs and JS-heavy websites:
+
+```bash
+# Install Playwright
+pip install playwright
+
+# Install browser binaries (one-time setup)
+python -m playwright install
+
+# Or install just Chromium (recommended)
+python -m playwright install chromium
+```
 
 ## 🛠️ Installation
 
@@ -60,6 +97,22 @@ pip install crawlit
 
 # Install with CLI tool support
 pip install crawlit[cli]
+
+# Install with JavaScript rendering support
+pip install crawlit[js]
+
+# Install with database support
+pip install crawlit[postgresql]  # PostgreSQL
+pip install crawlit[mongodb]     # MongoDB
+pip install crawlit[databases]   # All databases
+
+# Install with distributed crawling
+pip install crawlit[rabbitmq]    # RabbitMQ message queue
+pip install crawlit[kafka]       # Apache Kafka
+pip install crawlit[distributed] # All distributed features
+
+# Install everything
+pip install crawlit[all]         # All features
 ```
 
 ### From Source
@@ -257,7 +310,131 @@ async def main():
 asyncio.run(main())
 ```
 
+#### JavaScript Rendering (SPAs & JS-Heavy Websites)
+
+```python
+from crawlit import Crawler
+
+# Synchronous crawler with JavaScript rendering
+crawler = Crawler(
+    start_url="https://react-app-example.com",
+    max_depth=2,
+    use_js_rendering=True,  # Enable JavaScript rendering
+    js_browser_type="chromium",  # chromium, firefox, or webkit
+    js_wait_for_selector="#app",  # Wait for specific element (optional)
+    js_wait_for_timeout=2000  # Additional wait in milliseconds (optional)
+)
+
+crawler.crawl()
+results = crawler.get_results()
+```
+
+```python
+import asyncio
+from crawlit import AsyncCrawler
+
+# Asynchronous crawler with JavaScript rendering
+async def main():
+    crawler = AsyncCrawler(
+        start_url="https://vue-app-example.com",
+        max_depth=2,
+        use_js_rendering=True,
+        js_browser_type="chromium",
+        js_wait_for_selector=".main-content",
+        max_concurrent_requests=5  # Control concurrency with JS rendering
+    )
+    
+    await crawler.crawl()
+    results = crawler.get_results()
+    print(f"Crawled {len(results)} URLs from SPA")
+
+asyncio.run(main())
+```
+
+**Supported Frameworks:**
+- React (including Create React App, Next.js)
+- Vue.js (including Nuxt.js)
+- Angular
+- Svelte
+- Any JavaScript-rendered content
+
+**Browser Options:**
+- `chromium` (recommended, fastest)
+- `firefox`
+- `webkit` (Safari engine)
+
 See the `examples/programmatic_usage.py` file for a complete example.
+
+#### Database Integration
+
+Store crawl results directly in databases instead of files:
+
+```python
+from crawlit import Crawler
+from crawlit.utils.database import get_database_backend
+
+# Option 1: SQLite (built-in, no extra dependencies)
+db = get_database_backend('sqlite', database_path='crawl_results.db')
+
+# Option 2: PostgreSQL (requires psycopg2-binary)
+# db = get_database_backend('postgresql',
+#     host='localhost',
+#     database='crawlit',
+#     user='postgres',
+#     password='your_password'
+# )
+
+# Option 3: MongoDB (requires pymongo)
+# db = get_database_backend('mongodb',
+#     host='localhost',
+#     database='crawlit',
+#     collection='results'
+# )
+
+# Crawl a website
+crawler = Crawler(
+    start_url="https://example.com",
+    max_depth=2
+)
+
+results = crawler.crawl()
+
+# Save to database
+metadata = {
+    'start_url': crawler.start_url,
+    'max_depth': crawler.max_depth,
+    'user_agent': crawler.user_agent
+}
+
+crawl_id = db.save_results(results, metadata)
+print(f"Saved {len(results)} pages to database (crawl_id: {crawl_id})")
+
+# Query results
+all_results = db.get_results({'crawl_id': crawl_id})
+successful = db.get_results({'crawl_id': crawl_id, 'status_code': 200})
+failed = db.get_results({'crawl_id': crawl_id, 'success': False})
+
+# Get crawl history
+crawls = db.get_crawls(limit=10)
+for crawl in crawls:
+    print(f"[{crawl['id']}] {crawl['start_url']} - {crawl['successful_urls']}/{crawl['total_urls']} successful")
+
+# Cleanup
+db.clear_results({'crawl_id': crawl_id})  # Delete specific crawl
+# db.clear_results()  # Clear all results
+
+db.disconnect()
+```
+
+**Database Features:**
+- **SQLite**: Perfect for local development, no setup required
+- **PostgreSQL**: Production-ready with ACID compliance and advanced querying
+- **MongoDB**: Flexible document storage for unstructured data
+- **Query Support**: Filter by URL, status code, success/failure, crawl ID
+- **Metadata Tracking**: Store crawl configuration and statistics
+- **Easy Cleanup**: Delete specific crawls or clear all data
+
+See the `examples/database_integration.py` file for complete examples.
 
 ### Command Line Interface
 
@@ -285,6 +462,35 @@ crawlit --url https://example.com \
         --images-output "./image_output" \
         --extract-keywords \
         --keywords-output "keywords.json"
+
+# Crawl a Single Page Application (SPA) with JavaScript rendering
+crawlit --url https://react-app.com \
+        --use-js \
+        --js-browser chromium \
+        --js-wait-selector "#root" \
+        --depth 2 \
+        --output spa_results.json
+
+# Save results to a database
+crawlit --url https://example.com \
+        --database sqlite \
+        --db-path my_crawls.db \
+        --depth 2
+
+# Save to PostgreSQL
+crawlit --url https://example.com \
+        --database postgresql \
+        --db-host localhost \
+        --db-name crawlit \
+        --db-user postgres \
+        --db-password mypassword
+
+# Save to MongoDB
+crawlit --url https://example.com \
+        --database mongodb \
+        --db-host localhost \
+        --db-name crawlit \
+        --db-collection results
 ```
 
 ### Command Line Arguments
@@ -314,6 +520,18 @@ crawlit --url https://example.com \
 | `--min-rows` | Minimum number of rows for a table to be extracted | 1 |
 | `--min-columns` | Minimum number of columns for a table to be extracted | 2 |
 | `--max-table-depth` | Maximum depth to extract tables from | Same as max crawl depth |
+| `--use-js`, `--javascript` | Enable JavaScript rendering for SPAs | False |
+| `--js-browser` | Browser type (chromium, firefox, webkit) | chromium |
+| `--js-wait-selector` | CSS selector to wait for | None |
+| `--js-wait-timeout` | Additional wait timeout in milliseconds | None |
+| `--database`, `--db` | Database backend (sqlite, postgresql, mongodb) | None |
+| `--db-path` | Database file path (SQLite) | crawl_results.db |
+| `--db-host` | Database host (PostgreSQL/MongoDB) | localhost |
+| `--db-port` | Database port | 5432 (PostgreSQL) / 27017 (MongoDB) |
+| `--db-name` | Database name | crawlit |
+| `--db-user` | Database username (PostgreSQL) | postgres |
+| `--db-password` | Database password | (empty) |
+| `--db-collection` | Collection name (MongoDB) | results |
 | `--help`, `-h` | Show help message | - |
 
 ## 📊 Advanced Table Extraction
@@ -436,7 +654,110 @@ The image extraction feature provides:
 
 For a complete example, see `examples/image_extraction.py`.
 
-## 🔐 Authentication & Session Management
+## 🔐 Authentication
+
+Crawlit provides comprehensive authentication utilities for various auth methods.
+
+### Authentication Manager
+
+```python
+from crawlit import create_basic_auth, create_bearer_auth, create_api_key_auth
+
+# Basic Authentication
+auth = create_basic_auth('username', 'password')
+headers = auth.add_auth_to_headers()
+
+# Bearer Token (OAuth/JWT)
+auth = create_bearer_auth('your_jwt_token')
+headers = auth.add_auth_to_headers()
+# Result: {'Authorization': 'Bearer your_jwt_token'}
+
+# API Key (in header)
+auth = create_api_key_auth('your_api_key', 'X-API-Key', 'header')
+headers = auth.add_auth_to_headers()
+
+# API Key (in query parameter)
+auth = create_api_key_auth('your_api_key', 'api_key', 'query')
+params = auth.add_auth_to_params({'page': '1'})
+
+# Custom Headers
+from crawlit import create_custom_auth
+auth = create_custom_auth({
+    'X-Custom-Auth': 'token',
+    'X-Request-ID': 'req-123'
+})
+headers = auth.add_auth_to_headers()
+
+# Digest Authentication
+from crawlit import create_digest_auth
+auth = create_digest_auth('username', 'password')
+auth_obj = auth.get_auth_object()
+```
+
+See `examples/auth_example.py` for more examples.
+
+## 🔧 Environment & Configuration
+
+Load configuration from environment variables, .env files, and JSON config files.
+
+### Basic Environment Loading
+
+```python
+from crawlit import EnvLoader, load_env
+
+# Load .env file
+load_env('.env')
+
+# Type-safe variable access
+loader = EnvLoader()
+port = loader.get_int('PORT', default=8080)
+debug = loader.get_bool('DEBUG', default=False)
+features = loader.get_list('FEATURES')  # comma-separated
+```
+
+### Configuration File Loading
+
+```python
+from crawlit import ConfigLoader
+
+# Load from JSON config with env variable override
+loader = ConfigLoader(
+    env_file='.env',
+    config_file='config.json',
+    auto_load=True
+)
+
+# Access configuration (priority: env > .env > config file > default)
+db_host = loader.get('db_host', default='localhost')
+db_port = loader.get_int('db_port', default=5432)
+
+# Get configuration section
+db_config = loader.get_section('database')
+```
+
+### .env File Format
+
+```bash
+# .env example
+APP_NAME=MyApp
+APP_DEBUG=true
+APP_PORT=8080
+
+# Database
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=mydb
+
+# Features (comma-separated)
+FEATURES=feature1,feature2,feature3
+
+# Quoted values
+API_KEY="secret key with spaces"
+```
+
+See `examples/env_config_example.py` for more examples.
+
+## 🔐 Session Management
 
 Crawlit supports multiple authentication methods:
 
@@ -726,6 +1047,169 @@ stats = crawler.get_queue_stats()
 print(f"Queue size: {stats['size']}")
 ```
 
+## 🔒 Proxy Support
+
+Crawlit provides comprehensive proxy support with rotation, health tracking, and multiple strategies.
+
+### Basic Proxy Usage
+
+```python
+from crawlit import Crawler
+
+# Single proxy
+crawler = Crawler(
+    'https://example.com',
+    proxy='http://proxy.example.com:8080'
+)
+
+# With authentication
+crawler = Crawler(
+    'https://example.com',
+    proxy='http://username:password@proxy.example.com:8080'
+)
+
+# SOCKS5 proxy
+crawler = Crawler(
+    'https://example.com',
+    proxy='socks5://proxy.example.com:1080'
+)
+```
+
+### Proxy Manager with Rotation
+
+```python
+from crawlit import Crawler, ProxyManager
+
+# Create proxy manager
+proxy_manager = ProxyManager(rotation_strategy='round-robin')
+
+# Add proxies
+proxy_manager.add_proxy('http://proxy1.example.com:8080')
+proxy_manager.add_proxy('http://proxy2.example.com:8080', proxy_type='https')
+proxy_manager.add_proxy('socks5://proxy3.example.com:1080', proxy_type='socks5')
+
+# With authentication
+proxy_manager.add_proxy(
+    'http://proxy4.example.com:8080',
+    username='user',
+    password='pass'
+)
+
+# Use with crawler
+crawler = Crawler(
+    'https://example.com',
+    proxy_manager=proxy_manager
+)
+```
+
+### Load Proxies from File
+
+```python
+# Create proxies.txt with one proxy per line:
+# http://proxy1.example.com:8080
+# http://user:pass@proxy2.example.com:8080
+# socks5://proxy3.example.com:1080
+
+proxy_manager = ProxyManager(rotation_strategy='least-used')
+count = proxy_manager.load_from_file('proxies.txt')
+print(f"Loaded {count} proxies")
+
+crawler = Crawler('https://example.com', proxy_manager=proxy_manager)
+```
+
+### Rotation Strategies
+
+- **round-robin**: Rotate proxies in order
+- **random**: Select random proxy for each request
+- **least-used**: Use the proxy with fewest requests
+- **best-performance**: Use the proxy with best success rate
+
+### Health Tracking & Statistics
+
+```python
+# Check proxy statistics
+stats = proxy_manager.get_stats()
+print(f"Total proxies: {stats['total_proxies']}")
+print(f"Working proxies: {stats['working_proxies']}")
+print(f"Rotation strategy: {stats['rotation_strategy']}")
+
+# Get working proxy count
+working_count = proxy_manager.get_working_count()
+print(f"Working proxies: {working_count}")
+
+# Get next proxy (automatically handles rotation)
+proxy = proxy_manager.get_next_proxy()
+if proxy:
+    print(f"Selected proxy: {proxy.url}")
+```
+
+### CLI Usage
+
+```bash
+# Single proxy
+crawlit --url https://example.com --proxy http://proxy.example.com:8080
+
+# Proxy file with rotation
+crawlit --url https://example.com \\
+    --proxy-file proxies.txt \\
+    --proxy-rotation round-robin
+
+# Available strategies: round-robin, random, least-used, best-performance
+```
+
+## 🌐 JavaScript Rendering
+
+Crawlit now includes powerful JavaScript rendering capabilities using Playwright, enabling you to crawl:
+
+- **Single Page Applications (SPAs)**: React, Vue, Angular, Svelte
+- **Dynamic Content**: AJAX-loaded content, infinite scroll
+- **JavaScript-Heavy Sites**: Modern web applications with client-side routing
+
+### Features
+
+- **Multiple Browser Engines**: Chromium (recommended), Firefox, Webkit
+- **Smart Waiting**: Wait for specific selectors or timeouts
+- **Full Page Rendering**: Get the complete DOM after JavaScript execution
+- **Headless Mode**: Fast, resource-efficient crawling
+- **Async Support**: Works with both sync and async crawlers
+
+### Example Use Cases
+
+```python
+from crawlit import Crawler
+
+# Crawl a React application
+crawler = Crawler(
+    start_url="https://reactjs.org",
+    use_js_rendering=True,
+    js_wait_for_selector="#main-content",
+    max_depth=2
+)
+
+# Crawl with additional wait time for animations
+crawler = Crawler(
+    start_url="https://vue-app.com",
+    use_js_rendering=True,
+    js_wait_for_timeout=3000,  # Wait 3 seconds for animations
+    max_depth=2
+)
+
+# Use Firefox engine for testing
+crawler = Crawler(
+    start_url="https://angular-app.com",
+    use_js_rendering=True,
+    js_browser_type="firefox",
+    max_depth=2
+)
+```
+
+### Performance Considerations
+
+- JavaScript rendering is slower than static HTML fetching
+- Use `js_wait_for_selector` to minimize wait times
+- Consider reducing `max_concurrent_requests` for async crawling with JS
+- Chromium is generally the fastest browser engine
+
 ## 🏗️ Project Structure
 
 ```
@@ -738,6 +1222,7 @@ crawlit/
 │   ├── async_engine.py  # Asynchronous crawler engine
 │   ├── fetcher.py       # HTTP request handling (sync)
 │   ├── async_fetcher.py # HTTP request handling (async)
+│   ├── js_renderer.py   # JavaScript rendering with Playwright
 │   ├── parser.py        # HTML parsing and link extraction
 │   └── robots.py        # Robots.txt parser with crawl-delay support
 ├── extractors/          # Data extraction modules

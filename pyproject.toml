@@ -30,6 +30,7 @@ dependencies = [
     "html5lib>=1.1",
     "nltk>=3.6.0",
     "beautifulsoup4>=4.9.0",
+    "playwright>=1.40.0",
 ]
 
 [project.urls]
@@ -39,6 +40,27 @@ dependencies = [
 
 [project.optional-dependencies]
 cli = []  # No extra dependencies needed for CLI, but keeps it optional
+js = ["playwright>=1.40.0"]  # JavaScript rendering support
+postgresql = ["psycopg2-binary>=2.9.0"]  # PostgreSQL database support
+mongodb = ["pymongo>=4.0.0"]  # MongoDB database support
+databases = ["psycopg2-binary>=2.9.0", "pymongo>=4.0.0"]  # All database backends
+rabbitmq = ["pika>=1.3.0"]  # RabbitMQ message queue support
+kafka = ["kafka-python>=2.0.0"]  # Apache Kafka support
+distributed = ["pika>=1.3.0", "kafka-python>=2.0.0"]  # All distributed crawling features
+pdf = ["pdfplumber>=0.9.0"]  # PDF extraction support
+pdf-ocr = ["pdfplumber>=0.9.0", "pytesseract>=0.3.10", "Pillow>=9.0.0"]  # PDF with OCR support
+scheduler = ["croniter>=1.3.0"]  # Cron-like crawl scheduling
+test = [  # Testing dependencies
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-xdist>=3.0.0",
+    "pytest-timeout>=2.1.0",
+    "pytest-mock>=3.10.0",
+    "psutil>=5.9.0",
+    "reportlab>=4.0.0"
+]
+all = ["playwright>=1.40.0", "psycopg2-binary>=2.9.0", "pymongo>=4.0.0", "pika>=1.3.0", "kafka-python>=2.0.0", "pdfplumber>=0.9.0", "Pillow>=9.0.0", "croniter>=1.3.0"]  # All optional features
 
 [project.scripts]
 crawlit = "crawlit:cli_main"

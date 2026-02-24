@@ -11,12 +11,26 @@ from crawlit.utils.errors import handle_fetch_error
 
 logger = logging.getLogger(__name__)
 
+# Check if Playwright is available for JavaScript rendering
+try:
+    from crawlit.crawler.js_renderer import AsyncJavaScriptRenderer, is_playwright_available
+    PLAYWRIGHT_AVAILABLE = is_playwright_available()
+except ImportError:
+    PLAYWRIGHT_AVAILABLE = False
+    AsyncJavaScriptRenderer = None
+
 async def fetch_page_async(
     url: str, 
     user_agent: str = "crawlit/2.0", 
     max_retries: int = 3, 
     timeout: int = 10,
-    session: Optional[aiohttp.ClientSession] = None
+    session: Optional[aiohttp.ClientSession] = None,
+    use_js_rendering: bool = False,
+    js_renderer: Optional[Any] = None,
+    wait_for_selector: Optional[str] = None,
+    wait_for_timeout: Optional[int] = None,
+    proxy: Optional[str] = None,
+    proxy_manager: Optional[Any] = None
 ):
     """
     Asynchronously fetch a web page with retries and proper error handling
@@ -26,10 +40,43 @@ async def fetch_page_async(
         user_agent: User agent string to use in the request
         max_retries: Maximum number of retries on failure
         timeout: Request timeout in seconds
+        session: Optional aiohttp session to reuse
+        use_js_rendering: Whether to use JavaScript rendering (Playwright)
+        js_renderer: Optional AsyncJavaScriptRenderer instance
+        wait_for_selector: CSS selector to wait for (JS rendering only)
+        wait_for_timeout: Additional timeout after page load (JS rendering only)
+        proxy: Proxy URL string
+        proxy_manager: Optional ProxyManager for automatic proxy rotation
         
     Returns:
         tuple: (success, response_or_error, status_code)
     """
+    # Use JavaScript rendering if requested and available
+    if use_js_rendering:
+        if not PLAYWRIGHT_AVAILABLE:
+            logger.warning("JavaScript rendering requested but Playwright not available. Falling back to standard fetch.")
+        else:
+            return await _fetch_with_js_rendering(
+                url, user_agent, max_retries, timeout * 1000,  # Convert to milliseconds
+                js_renderer, wait_for_selector, wait_for_timeout
+            )
+    
+    # Determine proxy to use
+    proxy_url = None
+    current_proxy = None
+    
+    if proxy_manager:
+        # Get proxy from manager
+        current_proxy = proxy_manager.get_next_proxy()
+        if current_proxy:
+            proxy_url = current_proxy.get_url()
+            logger.debug(f"Using proxy from manager: {current_proxy}")
+    elif proxy:
+        # Use provided proxy
+        proxy_url = proxy
+        logger.debug(f"Using provided proxy: {proxy}")
+    
+    # Standard HTTP fetch (existing code)
     headers = {
         "User-Agent": user_agent,
         "Accept": "text/html,application/xhtml+xml,application/xml",
@@ -48,7 +95,7 @@ async def fetch_page_async(
             # Use provided session or create new one
             if session:
                 # Use provided session
-                async with session.get(url) as response:
+                async with session.get(url, proxy=proxy_url) as response:
                     status_code = response.status
                     
                     # Check if the request was successful
@@ -90,6 +137,10 @@ async def fetch_page_async(
                         if retries > max_retries:
                             logger.warning(f"Max retries ({max_retries}) exceeded for {url}")
                             return False, f"HTTP Error: {response.status}", status_code
+                        # Exponential backoff before retry
+                        backoff_time = min(2 ** retries, 32)  # Cap at 32 seconds
+                        logger.debug(f"Waiting {backoff_time}s before retry (exponential backoff)")
+                        await asyncio.sleep(backoff_time)
                     else:
                         # For client errors (4xx) and other status codes, don't retry
                         logger.warning(f"HTTP Error {response.status} for {url}")
@@ -97,7 +148,7 @@ async def fetch_page_async(
             else:
                 # Create new session
                 async with aiohttp.ClientSession(timeout=timeout_obj) as new_session:
-                    async with new_session.get(url, headers=headers) as response:
+                    async with new_session.get(url, headers=headers, proxy=proxy_url) as response:
                         status_code = response.status
                         
                         # Check if the request was successful
@@ -130,6 +181,9 @@ async def fetch_page_async(
                                 is_binary=is_binary
                             )
                             
+                            # Report success to proxy manager if using one
+                            if proxy_manager and current_proxy:
+                                proxy_manager.report_success(current_proxy)
                             return True, response_obj, status_code
                         # For 5xx server errors, retry if we haven't exceeded max retries
                         elif 500 <= response.status < 600:
@@ -139,6 +193,10 @@ async def fetch_page_async(
                             if retries > max_retries:
                                 logger.warning(f"Max retries ({max_retries}) exceeded for {url}")
                                 return False, f"HTTP Error: {response.status}", status_code
+                            # Exponential backoff before retry
+                            backoff_time = min(2 ** retries, 32)  # Cap at 32 seconds
+                            logger.debug(f"Waiting {backoff_time}s before retry (exponential backoff)")
+                            await asyncio.sleep(backoff_time)
                         else:
                             # For client errors (4xx) and other status codes, don't retry
                             logger.warning(f"HTTP Error {response.status} for {url}")
@@ -157,6 +215,17 @@ async def fetch_page_async(
             status_code = error_status or status_code
             logger.warning(f"{error_message} (attempt {retries + 1})")
             
+            # Report failure to proxy manager
+            if proxy_manager and current_proxy:
+                proxy_manager.report_failure(current_proxy)
+                # Get a new proxy for retry if available
+                if retries < max_retries:
+                    new_proxy = proxy_manager.get_next_proxy()
+                    if new_proxy:
+                        current_proxy = new_proxy
+                        proxy_url = current_proxy.get_url()
+                        logger.debug(f"Retrying with different proxy: {current_proxy}")
+            
             if not should_retry:
                 # Don't retry for certain errors (e.g., TooManyRedirects, 4xx)
                 return False, error_message, status_code or 500
@@ -164,10 +233,11 @@ async def fetch_page_async(
             retries += 1
             if retries > max_retries:
                 return False, error_message, status_code or 429
-        
-        # Add a small delay between retries
-        if retries <= max_retries:
-            await asyncio.sleep(0.5)
+            
+            # Exponential backoff before retry (only for exceptions)
+            backoff_time = min(2 ** retries, 32)  # Cap at 32 seconds
+            logger.debug(f"Waiting {backoff_time}s before retry (exponential backoff)")
+            await asyncio.sleep(backoff_time)
     
     # If we've exhausted all retries
     return False, f"Max retries ({max_retries}) exceeded", status_code or 429
@@ -325,23 +395,24 @@ async def async_fetch_page(url: str, user_agent: str, max_retries: int = 3, time
     }
     
     attempt = 0
-    
+
     # Configure client timeout
     timeout_obj = aiohttp.ClientTimeout(total=timeout)
-    
-    while attempt <= max_retries:
-        if attempt > 0:
-            logger.debug(f"Retry attempt {attempt} for URL: {url}")
-            # Exponential backoff between retries
-            await asyncio.sleep(2 ** attempt)
-        
-        attempt += 1
-        
-        try:
-            async with aiohttp.ClientSession(timeout=timeout_obj) as session:
+
+    # Create session once outside the retry loop to avoid resource leaks
+    async with aiohttp.ClientSession(timeout=timeout_obj) as session:
+        while attempt <= max_retries:
+            if attempt > 0:
+                logger.debug(f"Retry attempt {attempt} for URL: {url}")
+                # Exponential backoff between retries
+                await asyncio.sleep(2 ** attempt)
+
+            attempt += 1
+
+            try:
                 async with session.get(url, headers=headers, allow_redirects=True) as response:
                     status = response.status
-                    
+
                     # Check if we got a successful response
                     if response.ok:
                         content_type = response.headers.get('Content-Type', '')
@@ -362,22 +433,106 @@ async def async_fetch_page(url: str, user_agent: str, max_retries: int = 3, time
                             return False, None, status
                         elif attempt > max_retries:
                             return False, None, status
-                        
+
                         # Otherwise we'll retry for server errors (5xx) and 429
                         continue
-                        
-        except asyncio.TimeoutError:
-            logger.warning(f"Request to {url} timed out after {timeout} seconds")
-            if attempt > max_retries:
-                return False, None, 0
-        except aiohttp.ClientError as e:
-            logger.error(f"Error fetching {url}: {str(e)}")
-            if attempt > max_retries:
-                return False, None, 0
-        except Exception as e:
-            logger.exception(f"Unexpected error while fetching {url}: {str(e)}")
-            if attempt > max_retries:
-                return False, None, 0
+
+            except asyncio.TimeoutError:
+                logger.warning(f"Request to {url} timed out after {timeout} seconds")
+                if attempt > max_retries:
+                    return False, None, 0
+            except aiohttp.ClientError as e:
+                logger.error(f"Error fetching {url}: {str(e)}")
+                if attempt > max_retries:
+                    return False, None, 0
+            except Exception as e:
+                logger.exception(f"Unexpected error while fetching {url}: {str(e)}")
+                if attempt > max_retries:
+                    return False, None, 0
     
     # If we've exhausted all retries and still no success
     return False, None, 0
+
+
+async def _fetch_with_js_rendering(
+    url: str,
+    user_agent: str,
+    max_retries: int,
+    timeout: int,
+    js_renderer: Optional[Any],
+    wait_for_selector: Optional[str],
+    wait_for_timeout: Optional[int]
+) -> Tuple[bool, Any, int]:
+    """
+    Fetch a page using JavaScript rendering (Playwright).
+    
+    Args:
+        url: The URL to fetch
+        user_agent: User agent string
+        max_retries: Maximum retry attempts
+        timeout: Timeout in milliseconds
+        js_renderer: Optional AsyncJavaScriptRenderer instance to reuse
+        wait_for_selector: CSS selector to wait for
+        wait_for_timeout: Additional timeout after page load
+        
+    Returns:
+        Tuple of (success, response_or_error, status_code)
+    """
+    should_close_renderer = False
+    
+    try:
+        # Use provided renderer or create a new one
+        if js_renderer is None:
+            js_renderer = AsyncJavaScriptRenderer(
+                user_agent=user_agent,
+                timeout=timeout,
+                headless=True
+            )
+            should_close_renderer = True
+            await js_renderer.start()
+            
+        retries = 0
+        while retries <= max_retries:
+            result = await js_renderer.render(
+                url,
+                wait_for_selector=wait_for_selector,
+                wait_for_timeout=wait_for_timeout
+            )
+            
+            if result["success"]:
+                # Create a ResponseLike object from the rendered content
+                response_obj = ResponseLike(
+                    url=result["url"],
+                    status_code=result["status_code"],
+                    headers={"Content-Type": "text/html; charset=utf-8"},
+                    text=result["html"],
+                    is_binary=False
+                )
+                return True, response_obj, result["status_code"]
+            else:
+                # Retry on server errors or timeout
+                if result["status_code"] >= 500 or result["status_code"] == 0:
+                    retries += 1
+                    if retries <= max_retries:
+                        logger.warning(f"JS rendering failed for {url}, retrying (attempt {retries}/{max_retries})")
+                        backoff_time = min(2 ** retries, 32)  # Exponential backoff, cap at 32 seconds
+                        logger.debug(f"Waiting {backoff_time}s before retry (exponential backoff)")
+                        await asyncio.sleep(backoff_time)
+                        continue
+                        
+                # Don't retry on client errors
+                return False, result["error"], result["status_code"]
+                
+        # Max retries exceeded
+        return False, f"Max retries ({max_retries}) exceeded", 0
+        
+    except Exception as e:
+        logger.exception(f"Unexpected error in JS rendering for {url}: {e}")
+        return False, f"JavaScript rendering error: {str(e)}", 0
+    finally:
+        # Close renderer if we created it
+        if should_close_renderer and js_renderer:
+            try:
+                await js_renderer.close()
+            except Exception as e:
+                logger.warning(f"Error closing JS renderer: {e}")

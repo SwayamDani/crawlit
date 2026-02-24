@@ -95,6 +95,125 @@ def parse_args():
     parser.add_argument("--detect-page-type", action="store_true", default=False,
                         help="Auto-detect page type based on URL patterns")
     
+    # JavaScript rendering options
+    parser.add_argument("--use-js", "--javascript", action="store_true", default=False,
+                        help="Enable JavaScript rendering for SPAs and JS-heavy websites (requires Playwright)")
+    parser.add_argument("--js-browser", default="chromium", choices=["chromium", "firefox", "webkit"],
+                        help="Browser type for JavaScript rendering")
+    parser.add_argument("--js-wait-selector", default=None,
+                        help="CSS selector to wait for when using JS rendering")
+    parser.add_argument("--js-wait-timeout", type=int, default=None,
+                        help="Additional timeout (ms) to wait after page load when using JS rendering")
+    
+    # Proxy support options
+    parser.add_argument("--proxy", default=None,
+                        help="Single proxy to use (format: http://host:port or socks5://host:port)")
+    parser.add_argument("--proxy-file", default=None,
+                        help="File containing list of proxies (one per line)")
+    parser.add_argument("--proxy-rotation", default="round-robin", 
+                        choices=["round-robin", "random", "least-used", "best-performance"],
+                        help="Proxy rotation strategy when using proxy file")
+    
+    # Database integration options
+    parser.add_argument("--database", "--db", default=None, choices=["sqlite", "postgresql", "mongodb"],
+                        help="Database backend to store crawl results")
+    parser.add_argument("--db-path", default="crawl_results.db",
+                        help="Database file path (for SQLite)")
+    parser.add_argument("--db-host", default="localhost",
+                        help="Database host (for PostgreSQL/MongoDB)")
+    parser.add_argument("--db-port", type=int, default=None,
+                        help="Database port (default: 5432 for PostgreSQL, 27017 for MongoDB)")
+    parser.add_argument("--db-name", default="crawlit",
+                        help="Database name (for PostgreSQL/MongoDB)")
+    parser.add_argument("--db-user", default="postgres",
+                        help="Database username (for PostgreSQL)")
+    parser.add_argument("--db-password", default="",
+                        help="Database password (for PostgreSQL/MongoDB)")
+    parser.add_argument("--db-collection", default="results",
+                        help="Collection name (for MongoDB)")
+    
+    # Authentication options
+    parser.add_argument("--auth-user", default=None,
+                        help="Username for basic authentication")
+    parser.add_argument("--auth-password", default=None,
+                        help="Password for basic authentication")
+    parser.add_argument("--oauth-token", default=None,
+                        help="OAuth 2.0 bearer token for API authentication")
+    parser.add_argument("--api-key", default=None,
+                        help="API key for authentication")
+    parser.add_argument("--api-key-header", default="X-API-Key",
+                        help="Header name for API key (default: X-API-Key)")
+    parser.add_argument("--custom-header", action="append", default=None,
+                        help="Custom header in format 'Name:Value' (can be used multiple times)")
+    
+    # Budget tracking options
+    parser.add_argument("--max-pages", type=int, default=None,
+                        help="Maximum number of pages to crawl (budget limit)")
+    parser.add_argument("--max-bandwidth-mb", type=float, default=None,
+                        help="Maximum bandwidth in megabytes (budget limit)")
+    parser.add_argument("--max-time-seconds", type=float, default=None,
+                        help="Maximum crawl time in seconds (budget limit)")
+    parser.add_argument("--max-file-size-mb", type=float, default=None,
+                        help="Maximum file size per request in megabytes")
+    
+    # Caching and resume options
+    parser.add_argument("--use-cache", action="store_true", default=False,
+                        help="Enable page caching to avoid re-fetching")
+    parser.add_argument("--cache-dir", default=".crawlit_cache",
+                        help="Directory for disk-based cache")
+    parser.add_argument("--cache-ttl", type=int, default=3600,
+                        help="Cache time-to-live in seconds (default: 3600)")
+    parser.add_argument("--enable-disk-cache", action="store_true", default=False,
+                        help="Enable disk-based caching (persists across runs)")
+    parser.add_argument("--save-state", default=None,
+                        help="Save crawl state to file for later resumption")
+    parser.add_argument("--resume-from", default=None,
+                        help="Resume crawl from previously saved state file")
+    
+    # Content deduplication options
+    parser.add_argument("--enable-deduplication", action="store_true", default=False,
+                        help="Enable content deduplication to skip duplicate pages")
+    parser.add_argument("--dedup-min-length", type=int, default=100,
+                        help="Minimum content length for deduplication (default: 100)")
+    parser.add_argument("--dedup-normalize", action="store_true", default=True,
+                        help="Normalize content before deduplication")
+    
+    # URL filtering options
+    parser.add_argument("--allowed-pattern", action="append", default=None,
+                        help="Regex pattern for allowed URLs (can be used multiple times)")
+    parser.add_argument("--blocked-pattern", action="append", default=None,
+                        help="Regex pattern for blocked URLs (can be used multiple times)")
+    parser.add_argument("--blocked-extension", action="append", default=None,
+                        help="File extension to block (e.g., .pdf, .zip)")
+    parser.add_argument("--same-path-only", action="store_true", default=False,
+                        help="Restrict crawling to URLs with same path prefix as start URL")
+    
+    # Multi-threading and concurrency options
+    parser.add_argument("--max-workers", type=int, default=1,
+                        help="Maximum number of worker threads (default: 1 for single-threaded)")
+    parser.add_argument("--max-queue-size", type=int, default=None,
+                        help="Maximum size of URL queue (default: unlimited)")
+    
+    # Rate limiting options
+    parser.add_argument("--per-domain-delay", action="store_true", default=True,
+                        help="Enable per-domain rate limiting")
+    parser.add_argument("--domain-delay", action="append", default=None,
+                        help="Set delay for specific domain in format 'domain:delay' (e.g., 'example.com:2.0')")
+    
+    # Sitemap options
+    parser.add_argument("--use-sitemap", action="store_true", default=False,
+                        help="Discover and use sitemaps for URL discovery")
+    parser.add_argument("--sitemap-url", action="append", default=None,
+                        help="Explicit sitemap URL to parse (can be used multiple times)")
+    
+    # Storage options
+    parser.add_argument("--no-store-html", action="store_true", default=False,
+                        help="Don't store HTML content in results (saves memory)")
+    parser.add_argument("--use-disk-storage", action="store_true", default=False,
+                        help="Store HTML content on disk instead of memory")
+    parser.add_argument("--storage-dir", default=".crawlit_storage",
+                        help="Directory for disk-based HTML storage")
+    
     return parser.parse_args()
     
 
@@ -113,6 +232,167 @@ def main():
         # Log common setup info
         logger.info(f"Starting crawl from: {args.url}")
         logger.info(f"Domain restriction is {'disabled' if args.allow_external else 'enabled'}")
+        
+        # Setup authentication if provided
+        session_manager = None
+        if args.auth_user or args.oauth_token or args.api_key or args.custom_header:
+            logger.info("Setting up authentication...")
+            from crawlit.utils.session_manager import SessionManager
+            
+            # Parse custom headers
+            custom_headers = {}
+            if args.custom_header:
+                for header in args.custom_header:
+                    if ':' in header:
+                        key, value = header.split(':', 1)
+                        custom_headers[key.strip()] = value.strip()
+            
+            # Setup auth tuple if credentials provided
+            auth = None
+            if args.auth_user and args.auth_password:
+                auth = (args.auth_user, args.auth_password)
+                logger.info(f"Using basic authentication for user: {args.auth_user}")
+            
+            session_manager = SessionManager(
+                user_agent=args.user_agent,
+                auth=auth,
+                oauth_token=args.oauth_token,
+                api_key=args.api_key,
+                api_key_header=args.api_key_header,
+                headers=custom_headers if custom_headers else None
+            )
+            
+            if args.oauth_token:
+                logger.info("Using OAuth bearer token authentication")
+            if args.api_key:
+                logger.info(f"Using API key authentication (header: {args.api_key_header})")
+        
+        # Setup budget tracker if limits specified
+        budget_tracker = None
+        if args.max_pages or args.max_bandwidth_mb or args.max_time_seconds or args.max_file_size_mb:
+            logger.info("Setting up budget tracking...")
+            from crawlit.utils.budget_tracker import BudgetTracker, AsyncBudgetTracker
+            
+            def budget_exceeded_callback(reason, stats):
+                logger.warning(f"Budget exceeded: {reason}")
+                logger.info(f"Final stats: {stats['pages_crawled']} pages, {stats['mb_downloaded']:.2f} MB")
+            
+            budget_class = AsyncBudgetTracker if getattr(args, 'async', False) else BudgetTracker
+            budget_tracker = budget_class(
+                max_pages=args.max_pages,
+                max_bandwidth_mb=args.max_bandwidth_mb,
+                max_time_seconds=args.max_time_seconds,
+                max_file_size_mb=args.max_file_size_mb,
+                on_budget_exceeded=budget_exceeded_callback
+            )
+            logger.info(f"Budget limits: pages={args.max_pages}, bandwidth={args.max_bandwidth_mb}MB, time={args.max_time_seconds}s")
+        
+        # Setup page cache if enabled
+        page_cache = None
+        if args.use_cache or args.enable_disk_cache:
+            logger.info("Setting up page cache...")
+            from crawlit.utils.cache import PageCache
+            
+            page_cache = PageCache(
+                ttl=args.cache_ttl,
+                enable_disk_cache=args.enable_disk_cache,
+                cache_dir=args.cache_dir if args.enable_disk_cache else None
+            )
+            logger.info(f"Cache enabled: TTL={args.cache_ttl}s, disk={args.enable_disk_cache}")
+        
+        # Setup content deduplicator if enabled
+        content_deduplicator = None
+        if args.enable_deduplication:
+            logger.info("Setting up content deduplication...")
+            from crawlit.utils.deduplication import ContentDeduplicator
+            
+            content_deduplicator = ContentDeduplicator(
+                enabled=True,
+                min_content_length=args.dedup_min_length,
+                normalize_content=args.dedup_normalize
+            )
+            logger.info(f"Deduplication enabled: min_length={args.dedup_min_length}, normalize={args.dedup_normalize}")
+        
+        # Setup URL filter if patterns specified
+        url_filter = None
+        if args.allowed_pattern or args.blocked_pattern or args.blocked_extension:
+            logger.info("Setting up URL filtering...")
+            from crawlit.utils.url_filter import URLFilter
+            
+            url_filter = URLFilter(
+                allowed_patterns=args.allowed_pattern,
+                blocked_patterns=args.blocked_pattern,
+                blocked_extensions=args.blocked_extension
+            )
+            if args.allowed_pattern:
+                logger.info(f"Allowed patterns: {args.allowed_pattern}")
+            if args.blocked_pattern:
+                logger.info(f"Blocked patterns: {args.blocked_pattern}")
+            if args.blocked_extension:
+                logger.info(f"Blocked extensions: {args.blocked_extension}")
+        
+        # Setup rate limiter with per-domain delays
+        rate_limiter = None
+        if args.per_domain_delay or args.domain_delay:
+            from crawlit.utils.rate_limiter import RateLimiter, AsyncRateLimiter
+            
+            rate_limiter_class = AsyncRateLimiter if getattr(args, 'async', False) else RateLimiter
+            rate_limiter = rate_limiter_class(default_delay=args.delay)
+            
+            if args.domain_delay:
+                for domain_delay in args.domain_delay:
+                    if ':' in domain_delay:
+                        domain, delay_str = domain_delay.split(':', 1)
+                        try:
+                            delay = float(delay_str)
+                            rate_limiter.set_domain_delay(domain.strip(), delay)
+                            logger.info(f"Set delay for {domain.strip()}: {delay}s")
+                        except ValueError:
+                            logger.warning(f"Invalid domain delay format: {domain_delay}")
+        
+        # Setup storage manager if disk storage enabled
+        storage_manager = None
+        if args.use_disk_storage:
+            logger.info("Setting up disk storage...")
+            from crawlit.utils.storage import StorageManager
+            
+            storage_manager = StorageManager(
+                store_html_content=not args.no_store_html,
+                use_disk_storage=True,
+                storage_dir=args.storage_dir
+            )
+            logger.info(f"Disk storage enabled: {args.storage_dir}")
+        
+        # Setup proxy if provided
+        proxy_manager = None
+        proxy = args.proxy if hasattr(args, 'proxy') else None
+        
+        if hasattr(args, 'proxy_file') and args.proxy_file:
+            # Load proxies from file
+            logger.info(f"Loading proxies from file: {args.proxy_file}")
+            from crawlit.utils.proxy_manager import ProxyManager
+            proxy_manager = ProxyManager(rotation_strategy=args.proxy_rotation)
+            try:
+                count = proxy_manager.load_from_file(args.proxy_file)
+                logger.info(f"Loaded {count} proxies with {args.proxy_rotation} rotation")
+            except Exception as e:
+                logger.error(f"Failed to load proxies: {e}")
+                return
+        elif proxy:
+            logger.info(f"Using single proxy: {proxy}")
+        
+        # Check if resuming from previous state
+        resume_crawler = None
+        if args.resume_from:
+            logger.info(f"Attempting to resume from: {args.resume_from}")
+            from crawlit.utils.cache import CrawlResume
+            
+            if CrawlResume.can_resume(args.resume_from):
+                info = CrawlResume.get_resume_info(args.resume_from)
+                logger.info(f"Found saved state: {info['visited_count']} visited, {info['queue_size']} queued")
+            else:
+                logger.warning(f"Cannot resume from {args.resume_from}, starting fresh crawl")
+                args.resume_from = None
         
         # Determine whether to use async crawling
         if getattr(args, 'async', False):
@@ -134,7 +414,27 @@ def main():
                     enable_image_extraction=args.extract_images,
                     enable_keyword_extraction=args.extract_keywords,
                     enable_table_extraction=args.extract_tables,
-                    max_concurrent_requests=args.concurrency
+                    max_concurrent_requests=args.concurrency,
+                    use_js_rendering=args.use_js,
+                    js_browser_type=args.js_browser,
+                    js_wait_for_selector=args.js_wait_selector,
+                    js_wait_for_timeout=args.js_wait_timeout,
+                    proxy=proxy,
+                    proxy_manager=proxy_manager,
+                    session_manager=session_manager,
+                    url_filter=url_filter,
+                    page_cache=page_cache,
+                    storage_manager=storage_manager,
+                    store_html_content=not args.no_store_html,
+                    content_deduplicator=content_deduplicator,
+                    enable_content_deduplication=args.enable_deduplication,
+                    rate_limiter=rate_limiter,
+                    use_per_domain_delay=args.per_domain_delay,
+                    budget_tracker=budget_tracker,
+                    use_sitemap=args.use_sitemap,
+                    sitemap_urls=args.sitemap_url,
+                    same_path_only=args.same_path_only,
+                    max_queue_size=args.max_queue_size
                 )
                 
                 # Run the crawler in the current event loop
@@ -155,8 +455,38 @@ def main():
                 respect_robots=not args.ignore_robots,  # Invert the ignore-robots flag
                 enable_image_extraction=args.extract_images,
                 enable_keyword_extraction=args.extract_keywords,
-                enable_table_extraction=args.extract_tables
+                enable_table_extraction=args.extract_tables,
+                use_js_rendering=args.use_js,
+                js_browser_type=args.js_browser,
+                js_wait_for_selector=args.js_wait_selector,
+                js_wait_for_timeout=args.js_wait_timeout,
+                proxy=proxy,
+                proxy_manager=proxy_manager,
+                session_manager=session_manager,
+                url_filter=url_filter,
+                page_cache=page_cache,
+                storage_manager=storage_manager,
+                store_html_content=not args.no_store_html,
+                content_deduplicator=content_deduplicator,
+                enable_content_deduplication=args.enable_deduplication,
+                rate_limiter=rate_limiter,
+                use_per_domain_delay=args.per_domain_delay,
+                budget_tracker=budget_tracker,
+                use_sitemap=args.use_sitemap,
+                sitemap_urls=args.sitemap_url,
+                same_path_only=args.same_path_only,
+                max_queue_size=args.max_queue_size,
+                max_workers=args.max_workers
             )
+            
+            # Resume from saved state if specified
+            if args.resume_from:
+                try:
+                    crawler.resume_from(args.resume_from)
+                    logger.info(f"Successfully resumed from {args.resume_from}")
+                except Exception as e:
+                    logger.error(f"Failed to resume: {e}")
+                    logger.info("Starting fresh crawl instead")
             
             # Start crawling
             crawler.crawl()
@@ -164,6 +494,23 @@ def main():
         # Get results
         results = crawler.get_results()
         logger.info(f"Crawl complete. Visited {len(results)} URLs.")
+        
+        # Save state if requested
+        if args.save_state:
+            try:
+                crawler.save_state(args.save_state)
+                logger.info(f"Crawl state saved to {args.save_state}")
+            except Exception as e:
+                logger.error(f"Failed to save state: {e}")
+        
+        # Display budget statistics if budget tracking was enabled
+        if budget_tracker:
+            stats = budget_tracker.get_stats()
+            logger.info(f"Budget usage: {stats['pages_crawled']} pages, {stats['mb_downloaded']:.2f} MB")
+            if stats.get('elapsed_time_seconds'):
+                logger.info(f"Total time: {stats['elapsed_time_seconds']:.2f}s")
+            if stats['budget_exceeded']:
+                logger.warning(f"Budget was exceeded: {stats['exceeded_reason']}")
         
         # Handle table extraction if enabled
         if args.extract_tables:
@@ -257,6 +604,70 @@ def main():
             skipped = crawler.get_skipped_external_urls()
             if skipped:
                 logger.info(f"Skipped {len(skipped)} external URLs (use --allow-external to crawl them)")
+        
+        # Save results to database if specified
+        if args.database:
+            logger.info(f"Checking {args.database} database availability...")
+            from crawlit.utils.database import get_database_backend
+            
+            # Build database configuration
+            db_config = {}
+            if args.database == 'sqlite':
+                db_config['database_path'] = args.db_path
+            elif args.database == 'postgresql':
+                db_config['host'] = args.db_host
+                db_config['port'] = args.db_port if args.db_port else 5432
+                db_config['database'] = args.db_name
+                db_config['user'] = args.db_user
+                db_config['password'] = args.db_password
+            elif args.database == 'mongodb':
+                db_config['host'] = args.db_host
+                db_config['port'] = args.db_port if args.db_port else 27017
+                db_config['database'] = args.db_name
+                db_config['collection'] = args.db_collection
+                if args.db_user:
+                    db_config['username'] = args.db_user
+                if args.db_password:
+                    db_config['password'] = args.db_password
+            
+            try:
+                # check_setup=True by default, will raise RuntimeError if not available
+                db = get_database_backend(args.database, **db_config)
+                
+                logger.info(f"Saving results to {args.database} database...")
+                
+                # Prepare metadata
+                metadata = {
+                    'start_url': args.url,
+                    'max_depth': args.depth,
+                    'user_agent': args.user_agent,
+                    'internal_only': not args.allow_external,
+                    'respect_robots': not args.ignore_robots,
+                    'js_rendering': args.use_js,
+                }
+                
+                crawl_id = db.save_results(results, metadata)
+                logger.info(f"✓ Saved {len(results)} pages to {args.database} database (crawl_id: {crawl_id})")
+                db.disconnect()
+                
+            except RuntimeError as e:
+                # Database not available or not properly set up
+                logger.error("\n" + "="*60)
+                logger.error("DATABASE SETUP REQUIRED")
+                logger.error("="*60)
+                # The error message already contains setup instructions
+                logger.error(str(e))
+                logger.error("="*60 + "\n")
+                logger.warning("Continuing with file output only...")
+                
+            except ImportError as e:
+                logger.error(f"\nDatabase backend not available: {e}")
+                logger.error(f"Install with: pip install crawlit[{args.database}]\n")
+                logger.warning("Continuing with file output only...")
+                
+            except Exception as e:
+                logger.error(f"\nFailed to save to database: {e}")
+                logger.warning("Continuing with file output only...")
         
         # Save results to file in the specified format
         output_path = save_results(results, args.output_format, args.output, args.pretty_json)

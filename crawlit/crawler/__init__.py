@@ -9,14 +9,32 @@ from .parser import extract_links, _process_url
 from .async_engine import AsyncCrawler
 from .async_fetcher import fetch_page_async, fetch_url_async, ResponseLike
 
-__all__ = [
-    'Crawler',
-    'AsyncCrawler',
-    'fetch_page',
-    'fetch_page_async',
-    'fetch_url',
-    'fetch_url_async',
-    'ResponseLike',
-    'extract_links',
-    '_process_url'
-]
+# JavaScript rendering support (optional)
+try:
+    from .js_renderer import JavaScriptRenderer, AsyncJavaScriptRenderer, is_playwright_available
+    __all__ = [
+        'Crawler',
+        'AsyncCrawler',
+        'fetch_page',
+        'fetch_page_async',
+        'fetch_url',
+        'fetch_url_async',
+        'ResponseLike',
+        'extract_links',
+        '_process_url',
+        'JavaScriptRenderer',
+        'AsyncJavaScriptRenderer',
+        'is_playwright_available'
+    ]
+except ImportError:
+    __all__ = [
+        'Crawler',
+        'AsyncCrawler',
+        'fetch_page',
+        'fetch_page_async',
+        'fetch_url',
+        'fetch_url_async',
+        'ResponseLike',
+        'extract_links',
+        '_process_url'
+    ]

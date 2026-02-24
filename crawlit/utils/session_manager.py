@@ -39,7 +39,8 @@ class SessionManager:
         auth: Optional[Union[Tuple[str, str], HTTPBasicAuth, HTTPDigestAuth]] = None,
         oauth_token: Optional[str] = None,
         api_key: Optional[str] = None,
-        api_key_header: str = "X-API-Key"
+        api_key_header: str = "X-API-Key",
+        pool_size: int = 10
     ) -> None:
         """
         Initialize the session manager.
@@ -55,11 +56,13 @@ class SessionManager:
             oauth_token: Optional OAuth 2.0 bearer token (will be added as Authorization: Bearer <token>)
             api_key: Optional API key (will be added as a custom header)
             api_key_header: Header name for API key (default: "X-API-Key")
+            pool_size: Maximum number of connections to keep in pool (default: 10)
         """
         self.user_agent = user_agent
         self.timeout = timeout
         self.max_retries = max_retries
         self.verify_ssl = verify_ssl
+        self.pool_size = pool_size
         self._sync_session: Optional[requests.Session] = None
         self._async_session: Optional[aiohttp.ClientSession] = None
         self._initial_cookies = cookies or {}
@@ -132,7 +135,11 @@ class SessionManager:
                 status_forcelist=[500, 502, 503, 504],
                 allowed_methods=["GET", "HEAD"]
             )
-            adapter = HTTPAdapter(max_retries=retry_strategy)
+            adapter = HTTPAdapter(
+                max_retries=retry_strategy,
+                pool_connections=self.pool_size,
+                pool_maxsize=self.pool_size
+            )
             self._sync_session.mount("http://", adapter)
             self._sync_session.mount("https://", adapter)
             
@@ -174,7 +181,11 @@ class SessionManager:
             self._async_session = aiohttp.ClientSession(
                 timeout=timeout,
                 cookies=cookies,
-                connector=aiohttp.TCPConnector(ssl=self.verify_ssl),
+                connector=aiohttp.TCPConnector(
+                    ssl=self.verify_ssl,
+                    limit=self.pool_size,
+                    limit_per_host=self.pool_size
+                ),
                 headers=default_headers,
                 auth=auth
             )
@@ -263,6 +274,46 @@ class SessionManager:
         if self._sync_session:
             return dict(self._sync_session.cookies)
         return self._initial_cookies.copy()
+    
+    def save_cookies(self, filepath: str, format: str = 'json') -> None:
+        """
+        Save current session cookies to file.
+        
+        Args:
+            filepath: Path to save cookies
+            format: Format ('json' or 'pickle')
+        """
+        from .cookie_persistence import save_cookies
+        
+        cookies = self.get_cookies()
+        if cookies:
+            save_cookies(cookies, filepath, format)
+            logger.info(f"Saved {len(cookies)} cookies to {filepath}")
+        else:
+            logger.warning("No cookies to save")
+    
+    def load_cookies(self, filepath: str, format: str = 'auto') -> None:
+        """
+        Load cookies from file into session.
+        
+        Args:
+            filepath: Path to load cookies from
+            format: Format ('json', 'pickle', or 'auto')
+        """
+        from .cookie_persistence import load_cookies
+        
+        jar = load_cookies(filepath, format)
+        cookies = jar.to_requests_cookies()
+        
+        # Update initial cookies
+        self._initial_cookies.update(cookies)
+        
+        # Update existing sync session if it exists
+        if self._sync_session:
+            for name, value in cookies.items():
+                self._sync_session.cookies.set(name, value)
+        
+        logger.info(f"Loaded {len(cookies)} cookies from {filepath}")
     
     def close_sync_session(self) -> None:
         """Close the synchronous session."""

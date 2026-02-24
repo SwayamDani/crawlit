@@ -125,6 +125,11 @@ class TestSessionManagerAuth:
 class TestCrawlerWithAuth:
     """Test crawler integration with authentication"""
     
+    @pytest.fixture
+    def mock_website(self):
+        """Provide a mock website URL for authentication testing"""
+        return "http://localhost:8765"
+    
     def test_crawler_with_oauth(self, mock_website):
         """Test crawler with OAuth token"""
         sm = SessionManager(oauth_token="test-oauth-token")
