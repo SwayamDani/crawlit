@@ -10,6 +10,9 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
 
+# Ensure tests/logs directory exists (required by pytest.ini log configuration)
+os.makedirs(os.path.join(os.path.dirname(__file__), "logs"), exist_ok=True)
+
 # Add project root to sys.path if needed for imports in tests
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 

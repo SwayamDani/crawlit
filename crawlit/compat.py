@@ -6,6 +6,7 @@ This module provides utility functions to ensure compatibility between
 different versions of crawlit and its dependencies.
 """
 
+import asyncio
 import inspect
 from typing import Any, Callable
 
@@ -24,7 +25,6 @@ def ensure_response_compatibility(response_obj: Any) -> Any:
         The response object, possibly wrapped for compatibility
     """
     from .crawler.async_fetcher import ResponseLike
-    import inspect
     
     # If it's already our wrapped class, return it
     if isinstance(response_obj, ResponseLike):
@@ -53,11 +53,7 @@ def is_async_context() -> bool:
         bool: True if the current function is called from an async context
     """
     try:
-        # Check the call stack to see if there's an async frame
-        for frame_info in inspect.stack():
-            if inspect.iscoroutinefunction(frame_info.frame.f_code):
-                return True
-        return False
-    except Exception:
-        # If we can't determine, assume not async
+        asyncio.get_running_loop()
+        return True
+    except RuntimeError:
         return False

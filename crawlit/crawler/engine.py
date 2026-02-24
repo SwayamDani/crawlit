@@ -10,7 +10,7 @@ import threading
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Set, List, Any, Optional, Tuple
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urlparse
 
 from .fetcher import fetch_page
 from .parser import extract_links
@@ -703,10 +703,11 @@ class Crawler:
     
     def _should_crawl(self, url: str) -> bool:
         """Determine if a URL should be crawled based on settings"""
-        # Check if URL is already visited
-        if url in self.visited_urls:
-            logger.debug(f"Skipping already visited URL: {url}")
-            return False
+        # Check if URL is already visited (thread-safe)
+        with self._visited_lock:
+            if url in self.visited_urls:
+                logger.debug(f"Skipping already visited URL: {url}")
+                return False
         
         # Check if URL is internal when internal_only is True
         if self.internal_only:
@@ -776,45 +777,6 @@ class Crawler:
 
         return True
 
-    def _extract_links(self, url: str, soup: Any) -> List[str]:
-        """Extract all links from the page"""
-        links = []
-        for link in soup.find_all('a', href=True):
-            href = link['href'].strip()
-            
-            # Handle relative URLs
-            if href.startswith('/'):
-                # Convert relative URL to absolute
-                href = f"http://{self.base_domain}{href}"
-            elif not (href.startswith('http://') or href.startswith('https://')):
-                # Handle URLs without protocol and domain
-                href = urljoin(url, href)
-            
-            # Skip non-http(s) URLs
-            if not (href.startswith('http://') or href.startswith('https://')):
-                continue
-            
-            # Parse the URL to check domain and path
-            parsed_href = urlparse(href)
-            
-            # Skip if not in same domain when internal_only is True
-            if self.internal_only and parsed_href.netloc != self.base_domain:
-                self.skipped_external_urls.add(href)
-                logger.debug(f"Skipping external URL: {href} (external domain)")
-                continue
-            
-            # If same_path_only is True and we're not crawling the entire domain,
-            # check path restriction
-            if self.same_path_only and not self.crawl_entire_domain:
-                if not parsed_href.path.startswith(self.start_path):
-                    self.skipped_external_urls.add(href)
-                    logger.debug(f"Skipping path-external URL: {href} (not under {self.start_path})")
-                    continue
-            
-            links.append(href)
-        
-        return links
-    
     def pause(self) -> None:
         """Pause the crawling process."""
         self._paused = True

@@ -56,6 +56,10 @@ def save_results(results, output_format=None, output_file=None, pretty_json=Fals
     if pretty is not None and pretty_json is False:
         pretty_json = pretty
     
+    # Default output_format if not specified
+    if output_format is None:
+        output_format = "json"
+
     # Default filename if not specified
     if output_file is None:
         # Tests expect 'crawl_results.json' as default
