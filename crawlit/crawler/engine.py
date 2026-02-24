@@ -559,11 +559,14 @@ class Crawler:
             
             success = status_code == 200
             
+            # Case-insensitive content-type lookup for cached headers
+            cached_content_type = next((v for k, v in headers.items() if k.lower() == 'content-type'), '')
+            
             with self._results_lock:
                 self.results[url]['status'] = status_code
                 self.results[url]['success'] = success
                 self.results[url]['headers'] = headers
-                self.results[url]['content_type'] = headers.get('Content-Type', '')
+                self.results[url]['content_type'] = cached_content_type
             
             # Mark URL as visited (thread-safe)
             with self._visited_lock:
@@ -572,7 +575,7 @@ class Crawler:
                 self.visited_urls.add(url)
             
             # Process cached content similar to fresh fetch
-            if success and content and 'text/html' in headers.get('Content-Type', ''):
+            if success and content and 'text/html' in cached_content_type:
                 # Process cached HTML content
                 self._process_cached_content(url, depth, content, headers)
             return
@@ -606,9 +609,9 @@ class Crawler:
         if success:
             response = response_or_error
             
-            # Store response headers
+            # Store response headers (use CaseInsensitiveDict for content_type lookup)
             headers = dict(response.headers)
-            content_type = headers.get('Content-Type', '')
+            content_type = response.headers.get('Content-Type', '')
             
             with self._results_lock:
                 self.results[url]['headers'] = headers

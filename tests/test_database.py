@@ -280,6 +280,7 @@ class TestDatabaseFactory:
     
     def test_postgresql_not_running(self):
         """Test PostgreSQL availability when server not running"""
+        pytest.importorskip("psycopg2", reason="psycopg2 not installed")
         # Use invalid port to simulate server not running
         from crawlit.utils.database import PostgreSQLBackend
         
@@ -347,11 +348,13 @@ class TestDatabaseFactory:
                 assert type(db4).__name__ == 'PostgreSQLBackend'
                 assert type(db5).__name__ == 'PostgreSQLBackend'
             except Exception as e:
-                error_msg = str(e)
-                if "could not connect" in error_msg.lower() or "connection refused" in error_msg.lower():
+                error_msg = str(e).lower()
+                if "could not connect" in error_msg or "connection refused" in error_msg:
                     pytest.skip(f"PostgreSQL server not running: {e}")
-                elif "authentication failed" in error_msg.lower():
+                elif "authentication failed" in error_msg:
                     pytest.skip(f"PostgreSQL authentication failed: {e}")
+                elif "not available or not properly set up" in error_msg or "support not installed" in error_msg:
+                    pytest.skip(f"PostgreSQL not available: {e}")
                 else:
                     raise
         except ImportError:
@@ -432,6 +435,7 @@ class TestPostgreSQLBackend:
     
     def test_postgresql_connection(self):
         """Test PostgreSQL connection and automatic database creation"""
+        pytest.importorskip("psycopg2", reason="psycopg2 not installed")
         try:
             from crawlit.utils.database import PostgreSQLBackend
         except ImportError:
@@ -477,6 +481,7 @@ class TestMongoDBBackend:
     
     def test_mongodb_connection(self):
         """Test MongoDB connection"""
+        pytest.importorskip("pymongo", reason="pymongo not installed")
         from crawlit.utils.database import MongoDBBackend
         
         db = MongoDBBackend(
