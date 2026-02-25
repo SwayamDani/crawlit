@@ -4,95 +4,129 @@ robots.py - Robots.txt parser and rule checker
 """
 
 import logging
+import time
 import urllib.parse
 import urllib.request
 import urllib.error
+from collections import OrderedDict
 from urllib.robotparser import RobotFileParser
 from typing import Optional
 import aiohttp
 import asyncio
-import time
 
 logger = logging.getLogger(__name__)
 
 class RobotsHandler:
     """Handler for robots.txt parsing and rule checking"""
-    
-    def __init__(self):
-        """Initialize robots parser cache"""
-        self.parsers = {}  # Cache for robot parsers by domain
-        self.robots_txt_content = {}  # Cache robots.txt content for crawl-delay extraction
+
+    # Maximum number of domains to keep in the in-memory cache (LRU eviction)
+    _MAX_CACHE_SIZE = 256
+
+    def __init__(self, robots_timeout: int = 10):
+        """
+        Initialize robots parser cache.
+
+        Args:
+            robots_timeout: HTTP timeout (seconds) for fetching robots.txt files.
+        """
+        self.robots_timeout = robots_timeout
+        # Ordered dicts give us O(1) LRU eviction: move-to-end on hit,
+        # popitem(last=False) on miss-and-full.
+        self.parsers: OrderedDict = OrderedDict()
+        self.robots_txt_content: OrderedDict = OrderedDict()
+        self._fetch_times: dict = {}      # domain -> float (epoch seconds)
+        self.cache_expiry: int = 3600     # TTL: 1 hour
         self.skipped_paths = []  # Track paths skipped due to robots.txt rules
+
+    def _cache_set(self, domain: str, parser: RobotFileParser, robots_text: Optional[str] = None) -> None:
+        """Insert/update a domain in the LRU cache, evicting the oldest entry if full."""
+        # Remove existing entry (will be re-inserted at end = most-recent)
+        self.parsers.pop(domain, None)
+        if len(self.parsers) >= self._MAX_CACHE_SIZE:
+            self.parsers.popitem(last=False)  # Evict LRU
+        self.parsers[domain] = parser
+        self._fetch_times[domain] = time.time()
+
+        if robots_text is not None:
+            self.robots_txt_content.pop(domain, None)
+            if len(self.robots_txt_content) >= self._MAX_CACHE_SIZE:
+                self.robots_txt_content.popitem(last=False)
+            self.robots_txt_content[domain] = robots_text
+
+    def _is_cache_expired(self, domain: str) -> bool:
+        """Return True if the cached robots.txt for domain has expired or is absent."""
+        fetch_time = self._fetch_times.get(domain)
+        if fetch_time is None:
+            return True
+        return (time.time() - fetch_time) > self.cache_expiry
 
     def get_robots_parser(self, base_url):
         """
-        Get or create a parser for the domain's robots.txt
-        
+        Get or create a parser for the domain's robots.txt.
+
+        Results are cached with LRU eviction (max 256 domains) and a 1-hour TTL.
+
         Args:
             base_url: The base URL of the site
-        
+
         Returns:
             RobotFileParser: A parser for the domain's robots.txt
         """
         parsed_url = urllib.parse.urlparse(base_url)
         domain = parsed_url.netloc
-        
-        # Return cached parser if available
-        if domain in self.parsers:
+
+        # Return cached parser if still fresh
+        if domain in self.parsers and not self._is_cache_expired(domain):
+            # Move to end to mark as recently used (LRU)
+            self.parsers.move_to_end(domain)
             return self.parsers[domain]
-            
-        # Create a new parser
-        parser = RobotFileParser()
+
         robots_url = f"{parsed_url.scheme}://{domain}/robots.txt"
-        
+
         try:
             logger.info(f"Fetching robots.txt from {robots_url}")
-            
-            # Use requests instead of urllib to handle redirects properly
+
             try:
                 from requests import get
-                response = get(robots_url, timeout=10, allow_redirects=True, headers={'User-Agent': 'crawlit/1.0'})
-                
-                # Check if the request was successful
+                response = get(
+                    robots_url,
+                    timeout=self.robots_timeout,
+                    allow_redirects=True,
+                    headers={'User-Agent': 'crawlit/1.0'}
+                )
+
                 if response.status_code == 200:
                     content_type = response.headers.get('Content-Type', '').lower()
-                    if 'text/plain' in content_type or not 'html' in content_type:
-                        # Store robots.txt content for crawl-delay extraction
-                        self.robots_txt_content[domain] = response.text
-                        # Create a parser and feed the robots.txt content directly
+                    if 'text/plain' in content_type or 'html' not in content_type:
                         parser = RobotFileParser()
                         parser.parse(response.text.splitlines())
-                        self.parsers[domain] = parser
+                        self._cache_set(domain, parser, response.text)
                         return parser
                     else:
-                        # If it returns HTML or other non-text content, it's not a valid robots.txt
                         logger.warning(f"Invalid robots.txt at {robots_url} (content-type: {content_type})")
                         empty_parser = RobotFileParser()
                         empty_parser.parse([])
-                        self.parsers[domain] = empty_parser
+                        self._cache_set(domain, empty_parser)
                         return empty_parser
                 else:
-                    # 404 or other HTTP errors mean no robots.txt file exists
                     logger.warning(f"No robots.txt found at {robots_url} (HTTP status: {response.status_code})")
                     empty_parser = RobotFileParser()
                     empty_parser.parse([])
-                    self.parsers[domain] = empty_parser
+                    self._cache_set(domain, empty_parser)
                     return empty_parser
 
             except Exception as http_err:
-                # Any exception means we couldn't fetch robots.txt
                 logger.warning(f"Error fetching robots.txt from {robots_url}: {http_err}")
                 empty_parser = RobotFileParser()
                 empty_parser.parse([])
-                self.parsers[domain] = empty_parser
+                self._cache_set(domain, empty_parser)
                 return empty_parser
 
         except Exception as e:
             logger.warning(f"Error fetching robots.txt from {robots_url}: {e}")
-            # Return a permissive parser if robots.txt couldn't be fetched
             empty_parser = RobotFileParser()
             empty_parser.parse([])
-            self.parsers[domain] = empty_parser
+            self._cache_set(domain, empty_parser)
             return empty_parser
 
     def can_fetch(self, url, user_agent):
@@ -166,18 +200,41 @@ class RobotsHandler:
 
 class AsyncRobotsHandler:
     """Asynchronous handler for robots.txt files.
-    
+
     This class is responsible for fetching, parsing and checking robots.txt
     rules using async/await patterns.
     """
-    
-    def __init__(self):
-        """Initialize the AsyncRobotsHandler."""
-        self.parsers = {}  # Dictionary to cache robots.txt parsers by domain
-        self.robots_txt_content = {}  # Cache robots.txt content for crawl-delay extraction
-        self.last_fetch_time = {}  # Track when we last fetched a robots.txt file
-        self.cache_expiry = 3600  # Cache robots.txt for 1 hour by default
+
+    # Maximum number of domains to keep in the in-memory cache (LRU eviction)
+    _MAX_CACHE_SIZE = 256
+
+    def __init__(self, robots_timeout: int = 10):
+        """
+        Initialize the AsyncRobotsHandler.
+
+        Args:
+            robots_timeout: HTTP timeout (seconds) for fetching robots.txt files.
+        """
+        self.robots_timeout = robots_timeout
+        self.parsers: OrderedDict = OrderedDict()  # LRU cache: domain -> RobotFileParser
+        self.robots_txt_content: OrderedDict = OrderedDict()  # LRU cache: domain -> text
+        self.last_fetch_time: dict = {}  # domain -> float
+        self.cache_expiry: int = 3600  # Cache robots.txt for 1 hour by default
         self.skipped_paths = []  # Track paths skipped due to robots.txt rules
+
+    def _lru_set(self, domain: str, parser: RobotFileParser, robots_text: Optional[str] = None) -> None:
+        """Insert/update a domain in the LRU parser cache."""
+        self.parsers.pop(domain, None)
+        if len(self.parsers) >= self._MAX_CACHE_SIZE:
+            self.parsers.popitem(last=False)
+        self.parsers[domain] = parser
+        self.last_fetch_time[domain] = time.time()
+
+        if robots_text is not None:
+            self.robots_txt_content.pop(domain, None)
+            if len(self.robots_txt_content) >= self._MAX_CACHE_SIZE:
+                self.robots_txt_content.popitem(last=False)
+            self.robots_txt_content[domain] = robots_text
     
     async def can_fetch(self, url: str, user_agent: str) -> bool:
         """
@@ -204,7 +261,10 @@ class AsyncRobotsHandler:
             # Check if we need to fetch/update the robots.txt
             if domain not in self.parsers or self._is_cache_expired(domain):
                 await self._fetch_robots_txt(domain, user_agent)
-            
+            else:
+                # Mark as recently used for LRU tracking
+                self.parsers.move_to_end(domain)
+
             # If we have a parser for this domain, check if we can fetch the URL
             if domain in self.parsers:
                 parser = self.parsers[domain]
@@ -226,69 +286,48 @@ class AsyncRobotsHandler:
     async def _fetch_robots_txt(self, domain: str, user_agent: str) -> None:
         """
         Fetch and parse the robots.txt file for a domain.
-        
+
         Args:
             domain: Base domain URL (e.g., "https://example.com")
             user_agent: User agent string to use when fetching
         """
         robots_url = f"{domain}/robots.txt"
         logger.debug(f"Fetching robots.txt from {robots_url}")
-        
+
+        _permissive = ["User-agent: *", "Allow: /"]
+
+        def _make_permissive_parser() -> RobotFileParser:
+            p = RobotFileParser()
+            p.set_url(robots_url)
+            p.parse(_permissive)
+            return p
+
         try:
             headers = {"User-Agent": user_agent}
+            timeout_obj = aiohttp.ClientTimeout(total=self.robots_timeout)
             async with aiohttp.ClientSession() as session:
-                async with session.get(robots_url, headers=headers, timeout=10) as response:
+                async with session.get(robots_url, headers=headers, timeout=timeout_obj) as response:
                     if response.status == 200:
                         robots_txt = await response.text()
-                        
-                        # Store robots.txt content for crawl-delay extraction
-                        self.robots_txt_content[domain] = robots_txt
-                        
-                        # Create a parser and feed it the robots.txt content
                         parser = RobotFileParser()
                         parser.set_url(robots_url)
                         parser.parse(robots_txt.splitlines())
-                        
-                        # Cache the parser
-                        self.parsers[domain] = parser
-                        self.last_fetch_time[domain] = time.time()
-                        
+                        self._lru_set(domain, parser, robots_txt)
+
                     elif response.status == 404:
-                        # No robots.txt found, create an "allow all" parser
-                        parser = RobotFileParser()
-                        parser.set_url(robots_url)
-                        parser.parse(["User-agent: *", "Allow: /"])
-                        
-                        # Cache the parser
-                        self.parsers[domain] = parser
-                        self.last_fetch_time[domain] = time.time()
-                        
+                        self._lru_set(domain, _make_permissive_parser())
+
                     else:
                         logger.warning(f"Failed to fetch robots.txt from {robots_url} (HTTP {response.status})")
-                        # For other errors, we'll create a permissive parser
-                        parser = RobotFileParser()
-                        parser.set_url(robots_url)
-                        parser.parse(["User-agent: *", "Allow: /"])
-                        self.parsers[domain] = parser
-                        self.last_fetch_time[domain] = time.time()
-        
+                        self._lru_set(domain, _make_permissive_parser())
+
         except asyncio.TimeoutError:
             logger.warning(f"Timeout fetching robots.txt from {robots_url}")
-            # Create a permissive parser on timeout
-            parser = RobotFileParser()
-            parser.set_url(robots_url)
-            parser.parse(["User-agent: *", "Allow: /"])
-            self.parsers[domain] = parser
-            self.last_fetch_time[domain] = time.time()
-            
+            self._lru_set(domain, _make_permissive_parser())
+
         except Exception as e:
             logger.error(f"Error fetching robots.txt from {robots_url}: {str(e)}")
-            # Create a permissive parser on error
-            parser = RobotFileParser()
-            parser.set_url(robots_url)
-            parser.parse(["User-agent: *", "Allow: /"])
-            self.parsers[domain] = parser
-            self.last_fetch_time[domain] = time.time()
+            self._lru_set(domain, _make_permissive_parser())
     
     def _is_cache_expired(self, domain: str) -> bool:
         """

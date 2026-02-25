@@ -804,7 +804,8 @@ def main():
             
             # Process each page to extract keywords
             for url, page_data in results.items():
-                if page_data.get('keywords') and 'text/html' in page_data.get('content_type', ''):
+                ct = page_data.get('content_type', '') or ''
+                if page_data.get('keywords') and ct.split(';')[0].strip().lower() == 'text/html':
                     page_keywords = page_data.get('keywords', [])
                     page_keyphrases = page_data.get('keyphrases', [])
                     keywords_data["per_page"][url] = {

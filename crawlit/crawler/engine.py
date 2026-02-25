@@ -575,7 +575,7 @@ class Crawler:
                 self.visited_urls.add(url)
             
             # Process cached content similar to fresh fetch
-            if success and content and 'text/html' in cached_content_type:
+            if success and content and cached_content_type.split(';')[0].strip().lower() == 'text/html':
                 # Process cached HTML content
                 self._process_cached_content(url, depth, content, headers)
             return
@@ -645,7 +645,7 @@ class Crawler:
                 links = []
                 
                 # Process the page to extract links if it's HTML
-                if 'text/html' in content_type:
+                if content_type.split(';')[0].strip().lower() == 'text/html':
                     html_content = response.text
                     
                     # Check for duplicate content

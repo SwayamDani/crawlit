@@ -9,6 +9,7 @@ Tracks and enforces limits on:
 - Maximum file size per request
 """
 
+import asyncio
 import logging
 import time
 import threading
@@ -269,18 +270,104 @@ class BudgetTracker:
 
 class AsyncBudgetTracker(BudgetTracker):
     """
-    Async-compatible budget tracker.
-    
-    Uses asyncio locks for thread safety in async contexts.
-    Note: For simplicity, this still uses threading.Lock which works
-    in async contexts, but for pure async use, consider asyncio.Lock.
+    Async-native budget tracker.
+
+    Uses asyncio.Lock so that await-ing the lock never blocks the event loop
+    thread.  The sync methods inherited from BudgetTracker must NOT be called
+    on this class; use the async overrides instead.
     """
-    
+
     def __init__(self, *args, **kwargs):
-        """Initialize async budget tracker with same parameters as sync version."""
+        """Initialize async budget tracker with asyncio.Lock."""
         super().__init__(*args, **kwargs)
-        # Note: We keep threading.Lock as it works in both sync and async contexts
-        # For a pure async implementation, use asyncio.Lock
+        # Replace the threading.Lock set by BudgetTracker.__init__ with an
+        # asyncio.Lock so acquisitions are non-blocking in async contexts.
+        self._lock = asyncio.Lock()  # type: ignore[assignment]
+
+    async def can_crawl_page(self) -> Tuple[bool, Optional[str]]:  # type: ignore[override]
+        """Async version: check whether a new page can be crawled."""
+        callback_info = None
+
+        async with self._lock:
+            if self._budget_exceeded:
+                return False, self._exceeded_reason
+
+            if self.limits.max_pages and self._pages_crawled >= self.limits.max_pages:
+                reason = f"Page limit reached ({self.limits.max_pages} pages)"
+                callback_info = self._mark_exceeded(reason)
+
+            elif self.limits.max_time_seconds and self._start_time:
+                elapsed = time.time() - self._start_time
+                if elapsed >= self.limits.max_time_seconds:
+                    reason = f"Time limit reached ({self.limits.max_time_seconds}s)"
+                    callback_info = self._mark_exceeded(reason)
+
+            elif self.limits.max_bandwidth_mb:
+                mb_downloaded = self._bytes_downloaded / (1024 * 1024)
+                if mb_downloaded >= self.limits.max_bandwidth_mb:
+                    reason = f"Bandwidth limit reached ({self.limits.max_bandwidth_mb}MB)"
+                    callback_info = self._mark_exceeded(reason)
+
+        if callback_info:
+            if callback_info[1]:
+                self._trigger_callback(callback_info[0])
+            return False, callback_info[0]
+
+        return True, None
+
+    async def record_page(self, bytes_downloaded: int) -> None:  # type: ignore[override]
+        """Async version: record a successfully crawled page."""
+        async with self._lock:
+            self._pages_crawled += 1
+            self._bytes_downloaded += bytes_downloaded
+            logger.debug(
+                f"Budget: pages={self._pages_crawled}, "
+                f"bandwidth={self._bytes_downloaded / (1024 * 1024):.2f}MB"
+            )
+
+    async def can_download_file(self, file_size_bytes: int) -> Tuple[bool, Optional[str]]:  # type: ignore[override]
+        """Async version: check whether a file can be downloaded."""
+        async with self._lock:
+            if self.limits.max_file_size_mb:
+                file_size_mb = file_size_bytes / (1024 * 1024)
+                if file_size_mb > self.limits.max_file_size_mb:
+                    return False, (
+                        f"File size ({file_size_mb:.2f}MB) exceeds limit "
+                        f"({self.limits.max_file_size_mb}MB)"
+                    )
+            if self.limits.max_bandwidth_mb:
+                mb_downloaded = self._bytes_downloaded / (1024 * 1024)
+                file_size_mb = file_size_bytes / (1024 * 1024)
+                if mb_downloaded + file_size_mb > self.limits.max_bandwidth_mb:
+                    return False, f"Would exceed bandwidth limit ({self.limits.max_bandwidth_mb}MB)"
+            return True, None
+
+    async def get_stats(self) -> Dict[str, Any]:  # type: ignore[override]
+        """Async version: get current budget statistics."""
+        async with self._lock:
+            elapsed_time = time.time() - self._start_time if self._start_time else None
+            mb_downloaded = self._bytes_downloaded / (1024 * 1024)
+            stats: Dict[str, Any] = {
+                'pages_crawled': self._pages_crawled,
+                'bytes_downloaded': self._bytes_downloaded,
+                'mb_downloaded': mb_downloaded,
+                'elapsed_time_seconds': elapsed_time,
+                'budget_exceeded': self._budget_exceeded,
+                'exceeded_reason': self._exceeded_reason,
+                'limits': {
+                    'max_pages': self.limits.max_pages,
+                    'max_bandwidth_mb': self.limits.max_bandwidth_mb,
+                    'max_time_seconds': self.limits.max_time_seconds,
+                    'max_file_size_mb': self.limits.max_file_size_mb,
+                },
+            }
+            if self.limits.max_pages:
+                stats['pages_usage_percent'] = (self._pages_crawled / self.limits.max_pages) * 100
+            if self.limits.max_bandwidth_mb:
+                stats['bandwidth_usage_percent'] = (mb_downloaded / self.limits.max_bandwidth_mb) * 100
+            if self.limits.max_time_seconds and elapsed_time:
+                stats['time_usage_percent'] = (elapsed_time / self.limits.max_time_seconds) * 100
+            return stats
 
 
 

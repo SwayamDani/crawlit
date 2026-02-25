@@ -8,6 +8,7 @@ import aiohttp
 import asyncio
 from typing import Union, Dict, Tuple, Any, Optional
 from crawlit.utils.errors import handle_fetch_error
+from crawlit.utils.url_filter import sanitize_url_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -87,121 +88,69 @@ async def fetch_page_async(
     status_code = None
     
     timeout_obj = aiohttp.ClientTimeout(total=timeout)
-    
-    while retries <= max_retries:
+
+    # Create a single session for all retry attempts when none is provided.
+    # This reuses the underlying TCP connection pool instead of tearing it
+    # down and rebuilding it on every attempt (A1 fix).
+    _own_session: Optional[aiohttp.ClientSession] = None
+    if not session:
+        _own_session = aiohttp.ClientSession(timeout=timeout_obj, headers=headers)
+
+    try:
+      while retries <= max_retries:
+        _session = session if session else _own_session
         try:
-            logger.debug(f"Requesting {url} (attempt {retries + 1}/{max_retries + 1})")
-            
-            # Use provided session or create new one
-            if session:
-                # Use provided session
-                async with session.get(url, proxy=proxy_url) as response:
-                    status_code = response.status
-                    
-                    # Check if the request was successful
-                    if response.status == 200:
-                        # Check content type to determine if we should get text or binary content
-                        content_type = response.headers.get('Content-Type', '').lower()
-                        
-                        # For text-based content types, decode as text
-                        if 'text/' in content_type or 'html' in content_type or 'xml' in content_type or 'json' in content_type:
-                            try:
-                                content = await response.text()
-                            except UnicodeDecodeError:
-                                # Fallback to binary if text decoding fails
-                                logger.warning(f"Unicode decode error for {url}, falling back to binary mode")
-                                content = await response.read()
-                                is_binary = True
-                            else:
-                                is_binary = False
-                        else:
-                            # For binary content types (images, pdfs, etc.), don't decode
+            logger.debug(f"Requesting {sanitize_url_for_log(url)} (attempt {retries + 1}/{max_retries + 1})")
+
+            request_kwargs: Dict[str, Any] = {"proxy": proxy_url}
+            if not session:
+                # headers already baked into _own_session; pass nothing extra
+                pass
+
+            async with _session.get(url, **request_kwargs) as response:
+                status_code = response.status
+
+                if response.status == 200:
+                    content_type = response.headers.get('Content-Type', '').lower()
+
+                    if 'text/' in content_type or 'html' in content_type or 'xml' in content_type or 'json' in content_type:
+                        try:
+                            content = await response.text()
+                        except UnicodeDecodeError:
+                            logger.warning(f"Unicode decode error for {url}, falling back to binary mode")
                             content = await response.read()
                             is_binary = True
-                        
-                        # Create a response-like object compatible with the synchronous API
-                        response_obj = ResponseLike(
-                            url=str(response.url),
-                            status_code=response.status,
-                            headers=dict(response.headers),
-                            text=content,
-                            is_binary=is_binary
-                        )
-                        
-                        return True, response_obj, status_code
-                    # For 5xx server errors, retry if we haven't exceeded max retries
-                    elif 500 <= response.status < 600:
-                        logger.warning(f"HTTP Error {response.status} for {url}, will retry")
-                        retries += 1
-                        # If we've exceeded max retries, fail
-                        if retries > max_retries:
-                            logger.warning(f"Max retries ({max_retries}) exceeded for {url}")
-                            return False, f"HTTP Error: {response.status}", status_code
-                        # Exponential backoff before retry
-                        backoff_time = min(2 ** retries, 32)  # Cap at 32 seconds
-                        logger.debug(f"Waiting {backoff_time}s before retry (exponential backoff)")
-                        await asyncio.sleep(backoff_time)
-                    else:
-                        # For client errors (4xx) and other status codes, don't retry
-                        logger.warning(f"HTTP Error {response.status} for {url}")
-                        return False, f"HTTP Error: {response.status}", status_code
-            else:
-                # Create new session
-                async with aiohttp.ClientSession(timeout=timeout_obj) as new_session:
-                    async with new_session.get(url, headers=headers, proxy=proxy_url) as response:
-                        status_code = response.status
-                        
-                        # Check if the request was successful
-                        if response.status == 200:
-                            # Check content type to determine if we should get text or binary content
-                            content_type = response.headers.get('Content-Type', '').lower()
-                            
-                            # For text-based content types, decode as text
-                            if 'text/' in content_type or 'html' in content_type or 'xml' in content_type or 'json' in content_type:
-                                try:
-                                    content = await response.text()
-                                except UnicodeDecodeError:
-                                    # Fallback to binary if text decoding fails
-                                    logger.warning(f"Unicode decode error for {url}, falling back to binary mode")
-                                    content = await response.read()
-                                    is_binary = True
-                                else:
-                                    is_binary = False
-                            else:
-                                # For binary content types (images, pdfs, etc.), don't decode
-                                content = await response.read()
-                                is_binary = True
-                            
-                            # Create a response-like object compatible with the synchronous API
-                            response_obj = ResponseLike(
-                                url=str(response.url),
-                                status_code=response.status,
-                                headers=dict(response.headers),
-                                text=content,
-                                is_binary=is_binary
-                            )
-                            
-                            # Report success to proxy manager if using one
-                            if proxy_manager and current_proxy:
-                                proxy_manager.report_success(current_proxy)
-                            return True, response_obj, status_code
-                        # For 5xx server errors, retry if we haven't exceeded max retries
-                        elif 500 <= response.status < 600:
-                            logger.warning(f"HTTP Error {response.status} for {url}, will retry")
-                            retries += 1
-                            # If we've exceeded max retries, fail
-                            if retries > max_retries:
-                                logger.warning(f"Max retries ({max_retries}) exceeded for {url}")
-                                return False, f"HTTP Error: {response.status}", status_code
-                            # Exponential backoff before retry
-                            backoff_time = min(2 ** retries, 32)  # Cap at 32 seconds
-                            logger.debug(f"Waiting {backoff_time}s before retry (exponential backoff)")
-                            await asyncio.sleep(backoff_time)
                         else:
-                            # For client errors (4xx) and other status codes, don't retry
-                            logger.warning(f"HTTP Error {response.status} for {url}")
-                            return False, f"HTTP Error: {response.status}", status_code
-                        
+                            is_binary = False
+                    else:
+                        content = await response.read()
+                        is_binary = True
+
+                    response_obj = ResponseLike(
+                        url=str(response.url),
+                        status_code=response.status,
+                        headers=dict(response.headers),
+                        text=content,
+                        is_binary=is_binary
+                    )
+
+                    if proxy_manager and current_proxy:
+                        proxy_manager.report_success(current_proxy)
+                    return True, response_obj, status_code
+
+                elif 500 <= response.status < 600:
+                    logger.warning(f"HTTP Error {response.status} for {url}, will retry")
+                    retries += 1
+                    if retries > max_retries:
+                        logger.warning(f"Max retries ({max_retries}) exceeded for {url}")
+                        return False, f"HTTP Error: {response.status}", status_code
+                    backoff_time = min(2 ** retries, 32)
+                    logger.debug(f"Waiting {backoff_time}s before retry (exponential backoff)")
+                    await asyncio.sleep(backoff_time)
+                else:
+                    logger.warning(f"HTTP Error {response.status} for {url}")
+                    return False, f"HTTP Error: {response.status}", status_code
+
         except (asyncio.TimeoutError,
                 aiohttp.ClientConnectorError,
                 aiohttp.TooManyRedirects,
@@ -238,9 +187,14 @@ async def fetch_page_async(
             backoff_time = min(2 ** retries, 32)  # Cap at 32 seconds
             logger.debug(f"Waiting {backoff_time}s before retry (exponential backoff)")
             await asyncio.sleep(backoff_time)
-    
-    # If we've exhausted all retries
-    return False, f"Max retries ({max_retries}) exceeded", status_code or 429
+
+      # If we've exhausted all retries
+      return False, f"Max retries ({max_retries}) exceeded", status_code or 429
+
+    finally:
+        # Close the session we created ourselves; leave caller-provided sessions open.
+        if _own_session is not None:
+            await _own_session.close()
 
 
 async def fetch_url_async(url: str, user_agent: str = "crawlit/1.0", 
@@ -403,7 +357,7 @@ async def async_fetch_page(url: str, user_agent: str, max_retries: int = 3, time
     async with aiohttp.ClientSession(timeout=timeout_obj) as session:
         while attempt <= max_retries:
             if attempt > 0:
-                logger.debug(f"Retry attempt {attempt} for URL: {url}")
+                logger.debug(f"Retry attempt {attempt} for URL: {sanitize_url_for_log(url)}")
                 # Exponential backoff between retries
                 await asyncio.sleep(2 ** attempt)
 
@@ -416,7 +370,8 @@ async def async_fetch_page(url: str, user_agent: str, max_retries: int = 3, time
                     # Check if we got a successful response
                     if response.ok:
                         content_type = response.headers.get('Content-Type', '')
-                        if 'text/html' in content_type or 'application/xhtml+xml' in content_type:
+                        mime_type = content_type.split(';')[0].strip().lower()
+                        if mime_type in ('text/html', 'application/xhtml+xml'):
                             try:
                                 html_content = await response.text()
                                 return True, html_content, status

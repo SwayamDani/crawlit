@@ -6,7 +6,7 @@ url_filter.py - Advanced URL filtering utilities
 import re
 import logging
 from typing import List, Optional, Pattern, Set, Callable
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 logger = logging.getLogger(__name__)
 
@@ -174,4 +174,57 @@ class URLFilter:
                 '.pdf', '.zip', '.rar', '.tar', '.gz'
             ]
         )
+
+
+# Query-parameter names that are commonly used for credentials / secrets and
+# should be redacted before a URL is written to log files.
+_SENSITIVE_PARAMS: Set[str] = {
+    'api_key', 'apikey', 'api-key',
+    'token', 'access_token', 'auth_token',
+    'secret', 'client_secret',
+    'password', 'passwd', 'pass',
+    'key', 'private_key',
+    'auth', 'authorization',
+    'session', 'session_id', 'sessionid',
+    'csrf', 'csrftoken', 'csrf_token',
+    'signature', 'sig',
+}
+
+_REDACTED = 'REDACTED'
+
+
+def sanitize_url_for_log(url: str) -> str:
+    """
+    Return a copy of *url* with sensitive query-parameter values replaced by
+    ``REDACTED``.  The URL structure (scheme, host, path, …) is preserved so
+    log entries remain useful for debugging while credentials are not leaked.
+
+    Args:
+        url: The URL to sanitize.
+
+    Returns:
+        URL string safe to write to log files.
+    """
+    try:
+        parsed = urlparse(url)
+        if not parsed.query:
+            return url
+
+        # Re-encode query string, masking sensitive parameter values
+        pairs = []
+        for part in parsed.query.split('&'):
+            if '=' in part:
+                name, _, value = part.partition('=')
+                if name.lower() in _SENSITIVE_PARAMS:
+                    pairs.append(f"{name}={_REDACTED}")
+                else:
+                    pairs.append(part)
+            else:
+                pairs.append(part)
+
+        sanitized = urlunparse(parsed._replace(query='&'.join(pairs)))
+        return sanitized
+    except Exception:
+        # Never let sanitization crash the caller
+        return url
 

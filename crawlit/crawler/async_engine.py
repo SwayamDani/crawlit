@@ -381,7 +381,7 @@ class AsyncCrawler:
             try:
                 # Check budget before processing this URL
                 if self.budget_tracker:
-                    can_crawl, reason = self.budget_tracker.can_crawl_page()
+                    can_crawl, reason = await self.budget_tracker.can_crawl_page()
                     if not can_crawl:
                         logger.warning(f"Stopping crawl: {reason}")
                         break
@@ -493,7 +493,7 @@ class AsyncCrawler:
                             bytes_downloaded = 0
                     
                     if bytes_downloaded > 0:
-                        self.budget_tracker.record_page(bytes_downloaded)
+                        await self.budget_tracker.record_page(bytes_downloaded)
                 
                 try:
                     # Initialize links list for all URLs
@@ -501,7 +501,7 @@ class AsyncCrawler:
                     
                     # Process the page to extract links if it's HTML
                     content_type = response.headers.get('Content-Type', '')
-                    if 'text/html' in content_type:
+                    if content_type.split(';')[0].strip().lower() == 'text/html':
                         # Get the HTML content
                         html_content = await response.text()
                         
