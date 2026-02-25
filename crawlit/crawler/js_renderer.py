@@ -9,10 +9,18 @@ for Single Page Applications (SPAs) and JavaScript-heavy websites.
 import logging
 import asyncio
 from typing import Optional, Dict, Any, Union
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page, Error as PlaywrightError
-from playwright.sync_api import sync_playwright, Browser as SyncBrowser, BrowserContext as SyncBrowserContext, Page as SyncPage, Error as SyncPlaywrightError
 
 logger = logging.getLogger(__name__)
+
+try:
+    from playwright.async_api import async_playwright, Browser, BrowserContext, Page, Error as PlaywrightError
+    from playwright.sync_api import sync_playwright, Browser as SyncBrowser, BrowserContext as SyncBrowserContext, Page as SyncPage, Error as SyncPlaywrightError
+    _PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    _PLAYWRIGHT_AVAILABLE = False
+    # Define placeholder exception classes so references in methods don't cause NameError
+    PlaywrightError = Exception
+    SyncPlaywrightError = Exception
 
 
 class JavaScriptRenderer:
@@ -74,6 +82,10 @@ class JavaScriptRenderer:
         
     def start(self):
         """Start Playwright and launch browser."""
+        if not _PLAYWRIGHT_AVAILABLE:
+            raise ImportError(
+                "Playwright is not installed. Install it with: pip install playwright && playwright install"
+            )
         if self.playwright is None:
             logger.debug("Starting Playwright (sync)")
             self.playwright = sync_playwright().start()
@@ -409,6 +421,10 @@ class AsyncJavaScriptRenderer:
         
     async def start(self):
         """Start Playwright and launch browser asynchronously."""
+        if not _PLAYWRIGHT_AVAILABLE:
+            raise ImportError(
+                "Playwright is not installed. Install it with: pip install playwright && playwright install"
+            )
         if self.playwright is None:
             logger.debug("Starting Playwright (async)")
             self.playwright = await async_playwright().start()
@@ -692,9 +708,5 @@ def is_playwright_available() -> bool:
     Returns:
         bool: True if Playwright is available, False otherwise
     """
-    try:
-        import playwright
-        return True
-    except ImportError:
-        return False
+    return _PLAYWRIGHT_AVAILABLE
 
