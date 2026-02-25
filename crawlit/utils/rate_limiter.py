@@ -7,7 +7,7 @@ import logging
 import time
 import threading
 import asyncio
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 from urllib.parse import urlparse
 from collections import defaultdict
 
@@ -179,49 +179,61 @@ class AsyncRateLimiter:
     """
     Async version of rate limiter using asyncio locks.
     """
-    
+
     def __init__(self, default_delay: float = 0.1):
         """
         Initialize the async rate limiter.
-        
+
         Args:
             default_delay: Default delay in seconds between requests (global fallback)
         """
         self.default_delay = default_delay
         self._domain_delays: Dict[str, float] = {}
         self._domain_last_request: Dict[str, float] = {}
-        self._lock = asyncio.Lock()
+        # Lazily initialised so the lock always binds to the running event
+        # loop — creating asyncio primitives at module/class import time
+        # is broken in Python 3.10+ when no loop is running yet.
+        self._lock: Optional[asyncio.Lock] = None
+
+    def _get_lock(self) -> asyncio.Lock:
+        """Return the asyncio.Lock, creating it on first use."""
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
     
     async def set_domain_delay(self, domain: str, delay: float) -> None:
         """Set a custom delay for a specific domain (async)."""
-        async with self._lock:
+        async with self._get_lock():
             self._domain_delays[domain] = delay
             logger.debug(f"Set delay for {domain}: {delay}s")
-    
+
     async def get_domain_delay(self, domain: str) -> float:
         """Get the delay for a specific domain (async)."""
-        async with self._lock:
+        async with self._get_lock():
             return self._domain_delays.get(domain, self.default_delay)
-    
+
     async def wait_if_needed(self, url: str) -> None:
         """Wait if necessary to respect rate limiting for the domain (async)."""
         domain = self._extract_domain(url)
         delay = await self.get_domain_delay(domain)
-        
+
         if delay <= 0:
             return
-        
-        async with self._lock:
+
+        # Determine how long to sleep *before* acquiring the lock so we don't
+        # block other domains from proceeding while we wait.
+        sleep_time = 0.0
+        async with self._get_lock():
             last_request_time = self._domain_last_request.get(domain, 0)
-            current_time = time.time()
-            time_since_last_request = current_time - last_request_time
-            
+            time_since_last_request = time.time() - last_request_time
             if time_since_last_request < delay:
                 sleep_time = delay - time_since_last_request
-                logger.debug(f"Rate limiting: waiting {sleep_time:.3f}s for {domain}")
-                await asyncio.sleep(sleep_time)
-            
-            self._domain_last_request[domain] = time.time()
+            # Stamp the next allowed request time now to prevent thundering herd
+            self._domain_last_request[domain] = time.time() + sleep_time
+
+        if sleep_time > 0:
+            logger.debug(f"Rate limiting: waiting {sleep_time:.3f}s for {domain}")
+            await asyncio.sleep(sleep_time)
     
     def _extract_domain(self, url: str) -> str:
         """Extract domain from URL."""
@@ -233,17 +245,17 @@ class AsyncRateLimiter:
     
     async def get_stats(self) -> Dict[str, any]:
         """Get statistics about rate limiting (async)."""
-        async with self._lock:
+        async with self._get_lock():
             return {
                 'default_delay': self.default_delay,
                 'domains_with_custom_delay': len(self._domain_delays),
                 'domains_tracked': len(self._domain_last_request),
                 'domain_delays': self._domain_delays.copy(),
             }
-    
+
     async def clear(self) -> None:
         """Clear all domain-specific delays and reset tracking (async)."""
-        async with self._lock:
+        async with self._get_lock():
             self._domain_delays.clear()
             self._domain_last_request.clear()
             logger.debug("Async rate limiter cleared")
@@ -320,19 +332,20 @@ class DynamicRateLimiter(RateLimiter):
         with self._lock:
             # Record response time
             self._response_times[domain].append(response_time)
-            
+
             # Keep only last 10 response times
             if len(self._response_times[domain]) > 10:
                 self._response_times[domain] = self._response_times[domain][-10:]
-            
+
             # Track success/error
             if 200 <= status_code < 400:
                 self._success_counts[domain] += 1
             else:
                 self._error_counts[domain] += 1
-            
-            current_delay = self.get_domain_delay(domain)
-            
+
+            # Read delay directly to avoid re-acquiring the non-reentrant lock
+            current_delay = self._domain_delays.get(domain, self.default_delay)
+
             # Handle explicit rate limiting
             if status_code == 429:
                 # Too Many Requests - increase delay significantly
@@ -340,44 +353,45 @@ class DynamicRateLimiter(RateLimiter):
                     new_delay = float(retry_after)
                 else:
                     new_delay = current_delay * self.adjustment_factor * 2.0
-                
+
                 new_delay = min(new_delay, self.max_delay)
-                self.set_domain_delay(domain, new_delay)
+                self._domain_delays[domain] = new_delay
                 logger.warning(f"Rate limit hit for {domain}, increased delay to {new_delay:.2f}s")
                 return
-            
+
             # Calculate error rate
+            error_rate = 0.0
             total_requests = self._success_counts[domain] + self._error_counts[domain]
             if total_requests >= 5:  # Need minimum sample size
                 error_rate = self._error_counts[domain] / total_requests
-                
+
                 # High error rate - slow down
                 if error_rate > 0.3:
                     new_delay = current_delay * (1.0 + self.sensitivity_multiplier * 0.2)
                     new_delay = min(new_delay, self.max_delay)
                     if new_delay != current_delay:
-                        self.set_domain_delay(domain, new_delay)
+                        self._domain_delays[domain] = new_delay
                         logger.info(f"High error rate ({error_rate:.1%}) for {domain}, increased delay to {new_delay:.2f}s")
                     return
-            
+
             # Adjust based on response time
             if len(self._response_times[domain]) >= 5:
                 avg_response_time = sum(self._response_times[domain]) / len(self._response_times[domain])
-                
+
                 # Slow responses - increase delay
                 if avg_response_time > 2.0:
                     new_delay = current_delay * (1.0 + self.sensitivity_multiplier * 0.1)
                     new_delay = min(new_delay, self.max_delay)
                     if new_delay != current_delay:
-                        self.set_domain_delay(domain, new_delay)
+                        self._domain_delays[domain] = new_delay
                         logger.debug(f"Slow responses ({avg_response_time:.2f}s avg) for {domain}, increased delay to {new_delay:.2f}s")
-                
+
                 # Fast responses and low error rate - decrease delay
                 elif avg_response_time < 0.5 and error_rate < 0.1:
                     new_delay = current_delay / (1.0 + self.sensitivity_multiplier * 0.1)
                     new_delay = max(new_delay, self.min_delay)
                     if new_delay != current_delay:
-                        self.set_domain_delay(domain, new_delay)
+                        self._domain_delays[domain] = new_delay
                         logger.debug(f"Fast responses ({avg_response_time:.2f}s avg) for {domain}, decreased delay to {new_delay:.2f}s")
     
     def get_stats(self) -> Dict[str, any]:
@@ -392,23 +406,23 @@ class DynamicRateLimiter(RateLimiter):
                 'sensitivity_multiplier': self.sensitivity_multiplier
             }
             
-            # Per-domain stats
+            # Per-domain stats (read delay directly to avoid re-acquiring the lock)
             domain_stats = {}
             for domain in self._response_times.keys():
                 if self._response_times[domain]:
                     avg_response_time = sum(self._response_times[domain]) / len(self._response_times[domain])
                     total = self._success_counts[domain] + self._error_counts[domain]
                     error_rate = self._error_counts[domain] / total if total > 0 else 0
-                    
+
                     domain_stats[domain] = {
                         'avg_response_time': avg_response_time,
                         'error_rate': error_rate,
                         'total_requests': total,
-                        'current_delay': self.get_domain_delay(domain)
+                        'current_delay': self._domain_delays.get(domain, self.default_delay),
                     }
-            
+
             stats['domain_stats'] = domain_stats
-        
+
         return stats
 
 
@@ -476,22 +490,23 @@ class AsyncDynamicRateLimiter(AsyncRateLimiter):
         """
         domain = self._extract_domain(url)
         
-        async with self._lock:
+        async with self._get_lock():
             # Record response time
             self._response_times[domain].append(response_time)
-            
+
             # Keep only last 10 response times
             if len(self._response_times[domain]) > 10:
                 self._response_times[domain] = self._response_times[domain][-10:]
-            
+
             # Track success/error
             if 200 <= status_code < 400:
                 self._success_counts[domain] += 1
             else:
                 self._error_counts[domain] += 1
-            
-            current_delay = await self.get_domain_delay(domain)
-            
+
+            # Read delay directly to avoid re-acquiring the non-reentrant lock
+            current_delay = self._domain_delays.get(domain, self.default_delay)
+
             # Handle explicit rate limiting
             if status_code == 429:
                 # Too Many Requests - increase delay significantly
@@ -499,73 +514,74 @@ class AsyncDynamicRateLimiter(AsyncRateLimiter):
                     new_delay = float(retry_after)
                 else:
                     new_delay = current_delay * self.adjustment_factor * 2.0
-                
+
                 new_delay = min(new_delay, self.max_delay)
-                await self.set_domain_delay(domain, new_delay)
+                self._domain_delays[domain] = new_delay
                 logger.warning(f"Rate limit hit for {domain}, increased delay to {new_delay:.2f}s")
                 return
-            
+
             # Calculate error rate
+            error_rate = 0.0
             total_requests = self._success_counts[domain] + self._error_counts[domain]
             if total_requests >= 5:  # Need minimum sample size
                 error_rate = self._error_counts[domain] / total_requests
-                
+
                 # High error rate - slow down
                 if error_rate > 0.3:
                     new_delay = current_delay * (1.0 + self.sensitivity_multiplier * 0.2)
                     new_delay = min(new_delay, self.max_delay)
                     if new_delay != current_delay:
-                        await self.set_domain_delay(domain, new_delay)
+                        self._domain_delays[domain] = new_delay
                         logger.info(f"High error rate ({error_rate:.1%}) for {domain}, increased delay to {new_delay:.2f}s")
                     return
-            
+
             # Adjust based on response time
             if len(self._response_times[domain]) >= 5:
                 avg_response_time = sum(self._response_times[domain]) / len(self._response_times[domain])
-                
+
                 # Slow responses - increase delay
                 if avg_response_time > 2.0:
                     new_delay = current_delay * (1.0 + self.sensitivity_multiplier * 0.1)
                     new_delay = min(new_delay, self.max_delay)
                     if new_delay != current_delay:
-                        await self.set_domain_delay(domain, new_delay)
+                        self._domain_delays[domain] = new_delay
                         logger.debug(f"Slow responses ({avg_response_time:.2f}s avg) for {domain}, increased delay to {new_delay:.2f}s")
-                
+
                 # Fast responses and low error rate - decrease delay
                 elif avg_response_time < 0.5 and error_rate < 0.1:
                     new_delay = current_delay / (1.0 + self.sensitivity_multiplier * 0.1)
                     new_delay = max(new_delay, self.min_delay)
                     if new_delay != current_delay:
-                        await self.set_domain_delay(domain, new_delay)
+                        self._domain_delays[domain] = new_delay
                         logger.debug(f"Fast responses ({avg_response_time:.2f}s avg) for {domain}, decreased delay to {new_delay:.2f}s")
     
     async def get_stats(self) -> Dict[str, any]:
         """Get extended statistics including dynamic adjustments (async)."""
         stats = await super().get_stats()
-        
-        async with self._lock:
+
+        async with self._get_lock():
             stats['dynamic_tracking'] = {
                 'domains_tracked': len(self._response_times),
                 'min_delay': self.min_delay,
                 'max_delay': self.max_delay,
                 'sensitivity_multiplier': self.sensitivity_multiplier
             }
-            
-            # Per-domain stats
+
+            # Per-domain stats (read delay directly to avoid re-acquiring the lock)
             domain_stats = {}
             for domain in self._response_times.keys():
                 if self._response_times[domain]:
                     avg_response_time = sum(self._response_times[domain]) / len(self._response_times[domain])
                     total = self._success_counts[domain] + self._error_counts[domain]
                     error_rate = self._error_counts[domain] / total if total > 0 else 0
-                    
+
                     domain_stats[domain] = {
                         'avg_response_time': avg_response_time,
                         'error_rate': error_rate,
                         'total_requests': total,
-                        'current_delay': await self.get_domain_delay(domain)
+                        'current_delay': self._domain_delays.get(domain, self.default_delay),
                     }
-            
+
             stats['domain_stats'] = domain_stats
-        
+
         return stats

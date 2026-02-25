@@ -51,7 +51,7 @@ class RobotsHandler:
             # Use requests instead of urllib to handle redirects properly
             try:
                 from requests import get
-                response = get(robots_url, timeout=10, allow_redirects=True, headers={'User-Agent': 'crawlit/2.0'})
+                response = get(robots_url, timeout=10, allow_redirects=True, headers={'User-Agent': 'crawlit/1.0'})
                 
                 # Check if the request was successful
                 if response.status_code == 200:
@@ -68,42 +68,30 @@ class RobotsHandler:
                         # If it returns HTML or other non-text content, it's not a valid robots.txt
                         logger.warning(f"Invalid robots.txt at {robots_url} (content-type: {content_type})")
                         empty_parser = RobotFileParser()
-                        # Set the url to indicate an empty robots.txt
-                        empty_parser.set_url(robots_url)
-                        # Read it to mark it as having been loaded
-                        empty_parser.read()
+                        empty_parser.parse([])
                         self.parsers[domain] = empty_parser
                         return empty_parser
                 else:
                     # 404 or other HTTP errors mean no robots.txt file exists
                     logger.warning(f"No robots.txt found at {robots_url} (HTTP status: {response.status_code})")
                     empty_parser = RobotFileParser()
-                    # Set the url to indicate an empty robots.txt
-                    empty_parser.set_url(robots_url)
-                    # Read it to mark it as having been loaded
-                    empty_parser.read()
+                    empty_parser.parse([])
                     self.parsers[domain] = empty_parser
                     return empty_parser
-                    
+
             except Exception as http_err:
                 # Any exception means we couldn't fetch robots.txt
                 logger.warning(f"Error fetching robots.txt from {robots_url}: {http_err}")
                 empty_parser = RobotFileParser()
-                # Set the url to indicate an empty robots.txt
-                empty_parser.set_url(robots_url)
-                # Read it to mark it as having been loaded
-                empty_parser.read()
+                empty_parser.parse([])
                 self.parsers[domain] = empty_parser
                 return empty_parser
-                
+
         except Exception as e:
             logger.warning(f"Error fetching robots.txt from {robots_url}: {e}")
             # Return a permissive parser if robots.txt couldn't be fetched
             empty_parser = RobotFileParser()
-            # Set the url to indicate an empty robots.txt
-            empty_parser.set_url(robots_url)
-            # Read it to mark it as having been loaded
-            empty_parser.read()
+            empty_parser.parse([])
             self.parsers[domain] = empty_parser
             return empty_parser
 
@@ -127,41 +115,8 @@ class RobotsHandler:
         if parsed_url.query:
             path = f"{path}?{parsed_url.query}"
         
-        # Handle test domains specially
-        if domain == 'nonexistent.example.com':
-            # For nonexistent domains, we should allow everything (no robots.txt)
-            return True
-            
-        # Get the parser for this domain
+        # Get the parser for this domain and use the standard parser
         parser = self.get_robots_parser(base_url)
-        
-        # Special handling for test cases
-        if 'localhost' in domain:  # For the test server
-            # Handle specific paths for test cases
-            if path.startswith('/private/') and not path.startswith('/private/allowed/'):
-                # /private/ paths should be disallowed unless they're /private/allowed/
-                logger.info(f"Skipping {url} (disallowed by robots.txt - matches /private/ rule)")
-                self.skipped_paths.append(url)
-                return False
-                
-            elif path.startswith('/private/allowed/'):
-                # /private/allowed/ paths should be allowed
-                logger.info(f"Allowing {url} (matches Allow directive in robots.txt)")
-                return True
-                
-            elif path.startswith('/crawlit-only/') and 'crawlit' in user_agent.lower():
-                # /crawlit-only/ paths should be disallowed for crawlit user agent
-                logger.info(f"Skipping {url} (disallowed by robots.txt for {user_agent})")
-                self.skipped_paths.append(url)
-                return False
-                
-            elif path.startswith('/test-only/') and 'test-agent' in user_agent.lower():
-                # /test-only/ paths should be disallowed for test-agent user agent
-                logger.info(f"Skipping {url} (disallowed by robots.txt for {user_agent})")
-                self.skipped_paths.append(url)
-                return False
-        
-        # For all other cases, use the standard parser
         is_allowed = parser.can_fetch(user_agent, path)
         
         if not is_allowed:
@@ -174,6 +129,40 @@ class RobotsHandler:
     def get_skipped_paths(self):
         """Get list of URLs skipped due to robots.txt rules"""
         return self.skipped_paths
+
+    def get_crawl_delay(self, url: str, user_agent: str = "*") -> Optional[float]:
+        """
+        Extract Crawl-delay from robots.txt for a URL and user agent.
+
+        Args:
+            url: The URL to check
+            user_agent: The user agent to check rules for (default: "*")
+
+        Returns:
+            Crawl-delay in seconds, or None if not specified
+        """
+        parsed_url = urllib.parse.urlparse(url)
+        domain = parsed_url.netloc
+
+        if domain not in self.robots_txt_content:
+            return None
+
+        lines = self.robots_txt_content[domain].splitlines()
+        current_agent = None
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if line.lower().startswith('user-agent:'):
+                current_agent = line.split(':', 1)[1].strip()
+            elif line.lower().startswith('crawl-delay:'):
+                if current_agent in (user_agent, '*'):
+                    try:
+                        return float(line.split(':', 1)[1].strip())
+                    except ValueError:
+                        pass
+        return None
+
 
 class AsyncRobotsHandler:
     """Asynchronous handler for robots.txt files.

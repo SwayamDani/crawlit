@@ -5,7 +5,7 @@ crawlit - Modular, Ethical Python Web Crawler
 A flexible web crawler library that can be used programmatically or via CLI.
 """
 
-__version__ = '0.2.0'
+__version__ = '1.0.0'
 
 # Export core functionality
 from crawlit.crawler.engine import Crawler
@@ -72,6 +72,9 @@ from crawlit.utils import (
     log_with_context,
     CrawlitError,
     FetchError,
+    RobotsError,
+    ParseError,
+    ExtractionError,
     handle_fetch_error,
     AuthManager,
     AuthConfig,
@@ -99,6 +102,10 @@ from crawlit.utils.database import (
 from crawlit.utils.proxy_manager import ProxyManager, Proxy
 
 # Export distributed crawling (v0.2.0+)
+# These names are only available when optional deps (pika / kafka-python) are
+# installed.  We define them as None here so the module-level namespace is
+# consistent; callers that need them should install crawlit[distributed].
+_DISTRIBUTED_AVAILABLE = False
 try:
     from crawlit.distributed import (
         MessageQueue,
@@ -110,11 +117,20 @@ try:
         CrawlCoordinator,
         ConnectionPool,
         DatabaseConnectionPool,
-        HTTPConnectionPool
+        HTTPConnectionPool,
     )
+    _DISTRIBUTED_AVAILABLE = True
 except ImportError:
-    # Distributed features require optional dependencies
-    pass
+    MessageQueue = None  # type: ignore[assignment,misc]
+    RabbitMQBackend = None  # type: ignore[assignment,misc]
+    KafkaBackend = None  # type: ignore[assignment,misc]
+    get_message_queue = None  # type: ignore[assignment]
+    DistributedCrawler = None  # type: ignore[assignment,misc]
+    CrawlWorker = None  # type: ignore[assignment,misc]
+    CrawlCoordinator = None  # type: ignore[assignment,misc]
+    ConnectionPool = None  # type: ignore[assignment,misc]
+    DatabaseConnectionPool = None  # type: ignore[assignment,misc]
+    HTTPConnectionPool = None  # type: ignore[assignment,misc]
 
 # Export security features (v0.2.0+)
 from crawlit.security import (
@@ -140,6 +156,7 @@ def cli_main():
     return main()
 
 __all__ = [
+    '__version__',
     'Crawler',           # Main crawler engine
     'AsyncCrawler',      # Async crawler engine
     'fetch_url',         # Fetch URL (sync)
@@ -217,6 +234,9 @@ __all__ = [
     'log_with_context',  # Log with additional context
     'CrawlitError',      # Base exception
     'FetchError',        # Fetch exception
+    'RobotsError',       # Robots.txt exception
+    'ParseError',        # HTML parse exception
+    'ExtractionError',   # Content extraction exception
     'handle_fetch_error',  # Error handler
     
     # Authentication & Configuration (v0.2.0+)
@@ -258,17 +278,17 @@ __all__ = [
     'CaptchaType',          # CAPTCHA type enum
     'detect_captcha',       # Convenience function
     
-    # Message queues
+    # Distributed crawling (only available when crawlit[distributed] is installed)
+    # Check _DISTRIBUTED_AVAILABLE before using these.
     'MessageQueue',
     'RabbitMQBackend',
     'KafkaBackend',
     'get_message_queue',
-    # Distributed crawling
     'DistributedCrawler',
     'CrawlWorker',
     'CrawlCoordinator',
-    # Connection pooling
     'ConnectionPool',
     'DatabaseConnectionPool',
     'HTTPConnectionPool',
+    '_DISTRIBUTED_AVAILABLE',
 ]

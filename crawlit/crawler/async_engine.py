@@ -6,6 +6,7 @@ async_engine.py - Asynchronous crawler engine
 import logging
 import re
 import asyncio
+from collections import deque
 from urllib.parse import urlparse, urljoin
 from typing import List, Dict, Set, Optional, Any
 import time
@@ -58,7 +59,7 @@ class AsyncCrawler:
         start_url: str, 
         max_depth: int = 3, 
         internal_only: bool = True, 
-        user_agent: str = "crawlit/2.0", 
+        user_agent: str = "crawlit/1.0", 
         max_retries: int = 3, 
         timeout: int = 10, 
         delay: float = 0.1,
@@ -96,7 +97,7 @@ class AsyncCrawler:
             start_url (str): The URL where crawling will begin.
             max_depth (int, optional): Maximum crawling depth. Defaults to 3.
             internal_only (bool, optional): Whether to stay within the same domain. Defaults to True.
-            user_agent (str, optional): User agent string to use in HTTP requests. Defaults to "crawlit/2.0".
+            user_agent (str, optional): User agent string to use in HTTP requests. Defaults to "crawlit/1.0".
             max_retries (int, optional): Maximum number of retry attempts for failed requests. Defaults to 3.
             timeout (int, optional): Request timeout in seconds. Defaults to 10.
             delay (float, optional): Delay between requests in seconds. Defaults to 0.1.
@@ -118,25 +119,22 @@ class AsyncCrawler:
         self.internal_only = internal_only
         self.respect_robots = respect_robots
         self.visited_urls = set()  # Store visited URLs
-        # Get the current event loop or create a new one if none exists
-        self.loop = asyncio.get_event_loop()
-        self.queue = asyncio.Queue()  # Async queue for crawling
+        self.queue: asyncio.Queue = asyncio.Queue()
         self.results = {}  # Store results with metadata
         self.skipped_external_urls = set()  # Track skipped external URLs
-        
+
         # Queue management
         self.max_queue_size: Optional[int] = max_queue_size
         self._paused: bool = False
-        
+
         # Request parameters
         self.user_agent = user_agent
         self.max_retries = max_retries
         self.timeout = timeout
         self.delay = delay
-        
+
         self.max_concurrent_requests = max_concurrent_requests
-        
-        self.semaphore = asyncio.Semaphore(self.max_concurrent_requests)
+        self.semaphore: asyncio.Semaphore = asyncio.Semaphore(max_concurrent_requests)
         
         # Extract domain and path information for URL filtering
         parsed_url = urlparse(start_url)
@@ -309,24 +307,29 @@ class AsyncCrawler:
             
     async def crawl(self):
         """Start the asynchronous crawling process"""
+        # Reset queue and semaphore at the start of each crawl so that
+        # crawl() can safely be called more than once on the same instance.
+        self.queue = asyncio.Queue()
+        self.semaphore = asyncio.Semaphore(self.max_concurrent_requests)
+
         # Start progress tracker if provided
         if self.progress_tracker:
             self.progress_tracker.start()
-        
+
         # Get async session from session manager
         session = await self.session_manager.get_async_session()
-        
+
         # Discover and parse sitemaps if enabled
         if self.use_sitemap and self.sitemap_parser:
             await self._discover_sitemaps(session)
-        
+
         # Add the starting URL to the queue with depth 0
         await self.queue.put((self.start_url, 0))
-        
-        # Create worker tasks with the explicit loop
+
+        # Create worker tasks using the running loop's create_task
         workers = []
         for _ in range(self.max_concurrent_requests):
-            task = self.loop.create_task(self._worker())
+            task = asyncio.create_task(self._worker())
             workers.append(task)
         
         # Wait until the queue is empty
@@ -370,38 +373,35 @@ class AsyncCrawler:
             # Check if paused
             while self._paused:
                 await asyncio.sleep(0.1)  # Small sleep to avoid busy waiting
-            
-            # Check budget before processing next URL
-            if self.budget_tracker:
-                can_crawl, reason = self.budget_tracker.can_crawl_page()
-                if not can_crawl:
-                    logger.warning(f"Stopping crawl: {reason}")
-                    self.queue.task_done()
-                    break
-            
+
             current_url, depth = await self.queue.get()
-            
+
             try:
+                # Check budget before processing this URL
+                if self.budget_tracker:
+                    can_crawl, reason = self.budget_tracker.can_crawl_page()
+                    if not can_crawl:
+                        logger.warning(f"Stopping crawl: {reason}")
+                        break
+
                 # Skip if we've already visited this URL
                 if current_url in self.visited_urls:
-                    self.queue.task_done()
                     continue
-                    
+
                 # Skip if we've exceeded the maximum depth
                 if depth > self.max_depth:
-                    self.queue.task_done()
                     continue
-                
+
                 # Mark as visited before processing to prevent duplicates
                 self.visited_urls.add(current_url)
-                
+
                 # Process the URL
                 await self._process_url(current_url, depth)
-                
+
             except Exception as e:
                 logger.error(f"Error processing {current_url}: {e}")
             finally:
-                # Mark the task as done
+                # Mark the task as done regardless of outcome
                 self.queue.task_done()
     
     async def _process_url(self, url, depth):

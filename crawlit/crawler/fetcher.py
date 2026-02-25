@@ -21,7 +21,7 @@ except ImportError:
 
 def fetch_page(
     url: str, 
-    user_agent: str = "crawlit/2.0", 
+    user_agent: str = "crawlit/1.0", 
     max_retries: int = 3, 
     timeout: int = 10,
     session: Optional[requests.Session] = None,
@@ -175,7 +175,7 @@ def fetch_page(
 # This provides backward compatibility with test code
 def fetch_url(
     url: str, 
-    user_agent: str = "crawlit/2.0", 
+    user_agent: str = "crawlit/1.0", 
     max_retries: int = 3, 
     timeout: int = 10
 ) -> requests.Response:

@@ -48,3 +48,15 @@ Thumbs.db
 # Exclude specific JSON files except examples
 *.json
 !examples/*.json
+
+# Database files generated during crawls
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary Claude Code working directories
+tmpclaude-*/
+
+# Log files
+*.log
+tests/logs/

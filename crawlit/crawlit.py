@@ -47,7 +47,7 @@ def parse_args():
     parser.add_argument("--ignore-robots", "-i", action="store_true", default=False, 
                        help="Ignore robots.txt rules when crawling")
     parser.add_argument("--delay", type=float, default=0.1, help="Delay between requests (seconds)")
-    parser.add_argument("--user-agent", "-a", default="crawlit/2.0", help="Custom User-Agent string")
+    parser.add_argument("--user-agent", "-a", default="crawlit/1.0", help="Custom User-Agent string")
     parser.add_argument("--allow-external", "-e", action="store_true", default=False, 
                         help="Allow crawling URLs outside the initial domain")
     parser.add_argument("--summary", "-s", action="store_true", default=False,
