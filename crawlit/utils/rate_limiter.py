@@ -7,7 +7,7 @@ import logging
 import time
 import threading
 import asyncio
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 from collections import defaultdict
 
@@ -152,7 +152,7 @@ class RateLimiter:
         except Exception:
             return "unknown"
     
-    def get_stats(self) -> Dict[str, any]:
+    def get_stats(self) -> Dict[str, Any]:
         """
         Get statistics about rate limiting.
         
@@ -190,15 +190,13 @@ class AsyncRateLimiter:
         self.default_delay = default_delay
         self._domain_delays: Dict[str, float] = {}
         self._domain_last_request: Dict[str, float] = {}
-        # Lazily initialised so the lock always binds to the running event
-        # loop — creating asyncio primitives at module/class import time
-        # is broken in Python 3.10+ when no loop is running yet.
-        self._lock: Optional[asyncio.Lock] = None
+        # Eagerly initialise the lock. In Python 3.10+ asyncio.Lock() can be
+        # safely created outside of a running event loop; the loop is only
+        # needed when the lock is actually acquired.
+        self._lock: asyncio.Lock = asyncio.Lock()
 
     def _get_lock(self) -> asyncio.Lock:
-        """Return the asyncio.Lock, creating it on first use."""
-        if self._lock is None:
-            self._lock = asyncio.Lock()
+        """Return the asyncio.Lock."""
         return self._lock
     
     async def set_domain_delay(self, domain: str, delay: float) -> None:
@@ -243,7 +241,7 @@ class AsyncRateLimiter:
         except Exception:
             return "unknown"
     
-    async def get_stats(self) -> Dict[str, any]:
+    async def get_stats(self) -> Dict[str, Any]:
         """Get statistics about rate limiting (async)."""
         async with self._get_lock():
             return {
@@ -394,7 +392,7 @@ class DynamicRateLimiter(RateLimiter):
                         self._domain_delays[domain] = new_delay
                         logger.debug(f"Fast responses ({avg_response_time:.2f}s avg) for {domain}, decreased delay to {new_delay:.2f}s")
     
-    def get_stats(self) -> Dict[str, any]:
+    def get_stats(self) -> Dict[str, Any]:
         """Get extended statistics including dynamic adjustments."""
         stats = super().get_stats()
         
@@ -555,7 +553,7 @@ class AsyncDynamicRateLimiter(AsyncRateLimiter):
                         self._domain_delays[domain] = new_delay
                         logger.debug(f"Fast responses ({avg_response_time:.2f}s avg) for {domain}, decreased delay to {new_delay:.2f}s")
     
-    async def get_stats(self) -> Dict[str, any]:
+    async def get_stats(self) -> Dict[str, Any]:
         """Get extended statistics including dynamic adjustments (async)."""
         stats = await super().get_stats()
 

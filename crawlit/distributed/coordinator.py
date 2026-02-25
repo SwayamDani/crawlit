@@ -13,7 +13,11 @@ from typing import Dict, Any, Optional, List, Set
 from urllib.parse import urlparse
 from datetime import datetime
 
-from .message_queue import MessageQueue, get_message_queue
+try:
+    from .message_queue import MessageQueue, get_message_queue
+except ImportError:
+    MessageQueue = None  # type: ignore[assignment,misc]
+    get_message_queue = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -162,10 +166,10 @@ class CrawlCoordinator:
     def process_result(self, result: Dict[str, Any]) -> bool:
         """
         Process a result from a worker.
-        
+
         Args:
             result: Result dictionary from worker
-            
+
         Returns:
             bool: True if processed successfully
         """
@@ -174,16 +178,22 @@ class CrawlCoordinator:
             success = result.get('success', False)
             depth = result.get('depth', 0)
             links = result.get('links', [])
-            
+
+            # Collect links to publish while holding the lock so that dedup
+            # checks and in_progress_urls updates are atomic, preventing a
+            # second worker from picking up a child URL before it is marked
+            # as in-progress here.
+            tasks_to_publish = []
+
             with self._lock:
                 # Move from in-progress to visited
                 if url in self.in_progress_urls:
                     self.in_progress_urls.remove(url)
                 self.visited_urls.add(url)
-                
+
                 # Store result
                 self.results[url] = result
-                
+
                 # Update stats
                 if success:
                     self.stats['tasks_completed'] += 1
@@ -191,15 +201,32 @@ class CrawlCoordinator:
                 else:
                     self.stats['tasks_failed'] += 1
                     self.failed_urls.add(url)
-            
-            # Add new tasks for discovered links (outside the lock to avoid deadlock)
-            if success and depth < self.max_depth:
-                for link in links:
-                    self.add_task(link, depth=depth + 1, priority=max(0, 10 - depth))
-            
+
+                # Pre-filter and pre-mark child links while still holding the
+                # lock so no other worker can concurrently enqueue the same URL.
+                if success and depth < self.max_depth:
+                    for link in links:
+                        if link in self.visited_urls or link in self.in_progress_urls:
+                            continue
+                        if self.internal_only and self.start_url:
+                            start_domain = urlparse(self.start_url).netloc
+                            if urlparse(link).netloc != start_domain:
+                                continue
+                        if depth + 1 > self.max_depth:
+                            continue
+                        self.in_progress_urls.add(link)
+                        tasks_to_publish.append((link, depth + 1))
+                        self.stats['tasks_created'] += 1
+
+            # Publish outside the lock to avoid holding it during I/O
+            for link, link_depth in tasks_to_publish:
+                task = CrawlTask(url=link, depth=link_depth)
+                self.mq.publish(self.task_queue, task.to_dict(),
+                                priority=max(0, 10 - link_depth))
+
             logger.debug(f"Result processed: {url} (success={success}, links={len(links)})")
             return True
-            
+
         except Exception as e:
             logger.error(f"Error processing result: {e}")
             return False
@@ -518,6 +545,11 @@ class DistributedCrawler:
             worker_config: Worker configuration
         """
         # Initialize message queue
+        if get_message_queue is None:
+            raise ImportError(
+                "Distributed crawling requires message queue extras. "
+                "Install with: pip install crawlit[distributed]"
+            )
         mq_config = mq_config or {}
         self.mq = get_message_queue(message_queue_type, **mq_config)
         

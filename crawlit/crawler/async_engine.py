@@ -134,7 +134,9 @@ class AsyncCrawler:
         self.delay = delay
 
         self.max_concurrent_requests = max_concurrent_requests
-        self.semaphore: asyncio.Semaphore = asyncio.Semaphore(max_concurrent_requests)
+        # Semaphore is created inside crawl() to ensure it binds to the running event loop.
+        # Do not instantiate asyncio primitives outside of an async context.
+        self.semaphore: Optional[asyncio.Semaphore] = None
         
         # Extract domain and path information for URL filtering
         parsed_url = urlparse(start_url)

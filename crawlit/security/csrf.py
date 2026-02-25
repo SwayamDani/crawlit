@@ -108,28 +108,26 @@ class CSRFTokenExtractor:
     def _extract_from_javascript(self):
         """Extract CSRF tokens from inline JavaScript"""
         scripts = self.soup.find_all('script')
-        
+
         for script in scripts:
             if not script.string:
                 continue
-            
+
             script_content = script.string
-            
-            # Common patterns for CSRF tokens in JavaScript
+
+            # Mapping of token names to their regex patterns
             patterns = [
-                r'csrfToken\s*[=:]\s*["\']([^"\']+)["\']',
-                r'csrf_token\s*[=:]\s*["\']([^"\']+)["\']',
-                r'CSRF_TOKEN\s*[=:]\s*["\']([^"\']+)["\']',
-                r'_token\s*[=:]\s*["\']([^"\']+)["\']',
-                r'authenticity_token\s*[=:]\s*["\']([^"\']+)["\']',
-                r'xsrfToken\s*[=:]\s*["\']([^"\']+)["\']',
+                ('csrfToken', r'csrfToken\s*[=:]\s*["\']([^"\']+)["\']'),
+                ('csrf_token', r'csrf_token\s*[=:]\s*["\']([^"\']+)["\']'),
+                ('CSRF_TOKEN', r'CSRF_TOKEN\s*[=:]\s*["\']([^"\']+)["\']'),
+                ('_token', r'_token\s*[=:]\s*["\']([^"\']+)["\']'),
+                ('authenticity_token', r'authenticity_token\s*[=:]\s*["\']([^"\']+)["\']'),
+                ('xsrfToken', r'xsrfToken\s*[=:]\s*["\']([^"\']+)["\']'),
             ]
-            
-            for pattern in patterns:
+
+            for token_name, pattern in patterns:
                 matches = re.findall(pattern, script_content, re.IGNORECASE)
                 if matches:
-                    # Use the pattern as a token name
-                    token_name = pattern.split('\\')[0]
                     self.tokens[token_name] = matches[0]
                     logger.debug(f"Found CSRF token in JavaScript: {token_name}")
     

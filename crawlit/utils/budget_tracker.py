@@ -133,16 +133,12 @@ class BudgetTracker:
                     reason = f"Bandwidth limit reached ({self.limits.max_bandwidth_mb}MB)"
                     callback_info = self._mark_exceeded(reason)
             
-            if callback_info:
-                exceeded_reason = self._exceeded_reason
-        
-        # Trigger callback outside the lock to avoid deadlock
-        if callback_info and callback_info[1]:  # callback_info[1] indicates if callback exists
-            self._trigger_callback(callback_info[0])
+            # Trigger callback outside the lock to avoid deadlock
+        if callback_info:
+            if callback_info[1]:  # callback_info[1] indicates if callback exists
+                self._trigger_callback(callback_info[0])
             return False, callback_info[0]
-        elif callback_info:
-            return False, callback_info[0]
-        
+
         return True, None
     
     def can_download_file(self, file_size_bytes: int) -> Tuple[bool, Optional[str]]:

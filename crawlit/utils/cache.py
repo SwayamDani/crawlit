@@ -9,7 +9,7 @@ import hashlib
 import logging
 import time
 from typing import Dict, Any, Optional, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -74,8 +74,12 @@ class PageCache:
         # Parse ISO format datetime
         if isinstance(cached_time, str):
             cached_time = datetime.fromisoformat(cached_time)
-        
-        elapsed = (datetime.now() - cached_time).total_seconds()
+
+        # Ensure both sides of the subtraction are timezone-aware
+        now = datetime.now(timezone.utc)
+        if cached_time.tzinfo is None:
+            cached_time = cached_time.replace(tzinfo=timezone.utc)
+        elapsed = (now - cached_time).total_seconds()
         return elapsed > self.ttl
     
     def get(self, url: str) -> Optional[Dict[str, Any]]:
@@ -146,7 +150,7 @@ class PageCache:
             'headers': headers,
             'response_data': response_data,
             'content': content,
-            'cached_at': datetime.now().isoformat()
+            'cached_at': datetime.now(timezone.utc).isoformat()
         }
         
         # Store in memory cache
