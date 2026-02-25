@@ -354,8 +354,10 @@ class PostgreSQLBackend(DatabaseBackend):
         try:
             import psycopg2
             import psycopg2.extras
+            import psycopg2.sql
             self.psycopg2 = psycopg2
             self.extras = psycopg2.extras
+            self.sql = psycopg2.sql
         except ImportError:
             raise ImportError(
                 "PostgreSQL support requires psycopg2. "
@@ -398,8 +400,12 @@ class PostgreSQLBackend(DatabaseBackend):
                     conn.autocommit = True  # Required for CREATE DATABASE
                     cursor = conn.cursor()
                     
-                    # Create the database
-                    cursor.execute(f"CREATE DATABASE {self.config['database']}")
+                    # Create the database (use Identifier to prevent SQL injection)
+                    cursor.execute(
+                        self.sql.SQL("CREATE DATABASE {}").format(
+                            self.sql.Identifier(self.config['database'])
+                        )
+                    )
                     
                     cursor.close()
                     conn.close()
@@ -744,8 +750,8 @@ class MongoDBBackend(DatabaseBackend):
             else:
                 conn_str = f"mongodb://{host}:{port}"
             
-            # Try to connect with short timeout and direct connection
-            client = pymongo.MongoClient(conn_str, serverSelectionTimeoutMS=3000, directConnection=True)
+            # Try to connect with short timeout
+            client = pymongo.MongoClient(conn_str, serverSelectionTimeoutMS=3000)
             # Trigger actual connection
             client.server_info()
             client.close()
@@ -792,10 +798,6 @@ class MongoDBBackend(DatabaseBackend):
                 conn_str = f"mongodb://{self.username}:{self.password}@{self.host}:{self.port}"
             else:
                 conn_str = f"mongodb://{self.host}:{self.port}"
-            
-            # Add directConnection=True if not already specified to bypass replica set discovery
-            if 'directConnection' not in self.kwargs:
-                self.kwargs['directConnection'] = True
             
             self.client = self.pymongo.MongoClient(conn_str, **self.kwargs)
             self.db = self.client[self.database_name]

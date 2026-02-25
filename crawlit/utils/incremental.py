@@ -413,22 +413,23 @@ class IncrementalCrawler:
         status_code: int,
         etag: Optional[str] = None,
         last_modified: Optional[str] = None,
-        content: Optional[str] = None
+        content: Optional[str] = None,
+        content_hash: Optional[str] = None
     ) -> None:
         """
         Record response metadata for future incremental crawls.
-        
+
         Args:
             url: URL that was crawled
             status_code: HTTP status code
             etag: ETag header value
             last_modified: Last-Modified header value
             content: Page content (for hash calculation)
+            content_hash: Pre-computed content hash (takes precedence over content)
         """
         try:
-            # Calculate content hash if enabled
-            content_hash = None
-            if self.use_content_hash and content:
+            # Use provided hash, or compute from content if enabled
+            if content_hash is None and self.use_content_hash and content:
                 content_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
             
             conn = sqlite3.connect(str(self.storage_path))
@@ -644,21 +645,21 @@ class IncrementalCrawler:
     ) -> None:
         """
         Set the state for a URL manually.
-        
+
         This is an alias for record_response for API compatibility.
-        
+
         Args:
             url: URL to set state for
             etag: ETag header value
             last_modified: Last-Modified header value
-            content_hash: Content hash value
+            content_hash: Pre-computed content hash value
         """
         self.record_response(
             url=url,
             status_code=200,
             etag=etag,
             last_modified=last_modified,
-            content=None  # Content hash provided directly
+            content_hash=content_hash,
         )
     
     def should_crawl(

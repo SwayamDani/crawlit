@@ -45,9 +45,10 @@ test_cli/
 .DS_Store
 Thumbs.db
 
-# Exclude specific JSON files except examples
+# Exclude specific JSON files except examples and package data
 *.json
 !examples/*.json
+!crawlit/security/*.json
 
 # Database files generated during crawls
 *.db

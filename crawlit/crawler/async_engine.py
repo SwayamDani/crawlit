@@ -114,6 +114,14 @@ class AsyncCrawler:
             storage_manager (StorageManager, optional): Storage manager for HTML content. Defaults to None.
             store_html_content (bool, optional): Whether to store HTML content in results. Defaults to True.
         """
+        parsed_start = urlparse(start_url)
+        if parsed_start.scheme not in ('http', 'https'):
+            raise ValueError(
+                f"start_url must use http or https scheme, got: {start_url!r}"
+            )
+        if not parsed_start.netloc:
+            raise ValueError(f"start_url has no host: {start_url!r}")
+
         self.start_url = start_url
         self.max_depth = max_depth
         self.internal_only = internal_only
@@ -134,7 +142,9 @@ class AsyncCrawler:
         self.delay = delay
 
         self.max_concurrent_requests = max_concurrent_requests
-        self.semaphore: asyncio.Semaphore = asyncio.Semaphore(max_concurrent_requests)
+        # Semaphore is created inside crawl() to ensure it binds to the running event loop.
+        # Do not instantiate asyncio primitives outside of an async context.
+        self.semaphore: Optional[asyncio.Semaphore] = None
         
         # Extract domain and path information for URL filtering
         parsed_url = urlparse(start_url)
@@ -379,7 +389,7 @@ class AsyncCrawler:
             try:
                 # Check budget before processing this URL
                 if self.budget_tracker:
-                    can_crawl, reason = self.budget_tracker.can_crawl_page()
+                    can_crawl, reason = await self.budget_tracker.can_crawl_page()
                     if not can_crawl:
                         logger.warning(f"Stopping crawl: {reason}")
                         break
@@ -491,7 +501,7 @@ class AsyncCrawler:
                             bytes_downloaded = 0
                     
                     if bytes_downloaded > 0:
-                        self.budget_tracker.record_page(bytes_downloaded)
+                        await self.budget_tracker.record_page(bytes_downloaded)
                 
                 try:
                     # Initialize links list for all URLs
@@ -499,7 +509,7 @@ class AsyncCrawler:
                     
                     # Process the page to extract links if it's HTML
                     content_type = response.headers.get('Content-Type', '')
-                    if 'text/html' in content_type:
+                    if content_type.split(';')[0].strip().lower() == 'text/html':
                         # Get the HTML content
                         html_content = await response.text()
                         
@@ -709,34 +719,25 @@ class AsyncCrawler:
     async def save_state(self, filepath: str) -> None:
         """
         Save the current crawler state to a file (async version).
-        
+
+        The save is atomic: state is serialised to a temporary file beside
+        `filepath` and then renamed into place so that a crash during the write
+        never leaves a partially-written state file.
+
+        Queue contents are snapshotted by reading the underlying deque without
+        draining it, so running workers are unaffected.
+
         Args:
             filepath: Path to save the state file
         """
-        # Convert asyncio.Queue to list for serialization
-        queue_list = []
-        temp_queue = asyncio.Queue()
-        
-        # Drain the queue and rebuild it
-        while not self.queue.empty():
-            try:
-                item = self.queue.get_nowait()
-                queue_list.append(item)
-                temp_queue.put_nowait(item)
-            except asyncio.QueueEmpty:
-                break
-        
-        # Restore the queue
-        while not temp_queue.empty():
-            try:
-                item = temp_queue.get_nowait()
-                self.queue.put_nowait(item)
-            except asyncio.QueueEmpty:
-                break
-        
-        # Create a deque for compatibility with QueueManager
-        queue_deque = deque(queue_list)
-        
+        import json as _json
+        import os as _os
+        import tempfile as _tempfile
+
+        # Snapshot queue without draining: read the internal deque directly.
+        # asyncio.Queue stores items in _queue (a collections.deque).
+        queue_list = list(self.queue._queue)  # type: ignore[attr-defined]
+
         metadata = {
             'start_url': self.start_url,
             'max_depth': self.max_depth,
@@ -744,13 +745,31 @@ class AsyncCrawler:
             'respect_robots': self.respect_robots,
             'max_queue_size': self.max_queue_size
         }
-        QueueManager.save_state(
-            queue_deque,
-            self.visited_urls,
-            self.results,
-            filepath,
-            metadata
-        )
+
+        state = {
+            'queue': queue_list,
+            'visited_urls': list(self.visited_urls),
+            'results': self.results,
+            'metadata': metadata,
+            'saved_at': __import__('datetime').datetime.now().isoformat(),
+        }
+
+        # Write to a sibling temp file then rename for atomicity.
+        parent = _os.path.dirname(_os.path.abspath(filepath))
+        fd, tmp_path = _tempfile.mkstemp(dir=parent, suffix='.tmp')
+        try:
+            with _os.fdopen(fd, 'w', encoding='utf-8') as fh:
+                _json.dump(state, fh, indent=2, default=str)
+            _os.replace(tmp_path, filepath)
+        except Exception:
+            try:
+                _os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+
+        logger.debug(f"State saved atomically to {filepath} ({len(queue_list)} queued, "
+                     f"{len(self.visited_urls)} visited)")
     
     async def load_state(self, filepath: str) -> None:
         """

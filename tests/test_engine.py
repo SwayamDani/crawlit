@@ -458,22 +458,10 @@ class TestCrawler:
         
         # Verify that links were extracted only from HTML pages
         assert mock_extract_links.call_count == 1  # Only called for HTML content type
-        
+
         # Check that content types are properly stored in results
         assert results["https://example.com"]["content_type"] == 'text/html'
-        
-        # Verify that content types match what we set for each URL
-        for i, content_type in enumerate(content_types[1:], 1):
-            url = f"https://example.com/{i}"
-            if url in results:
-                assert results[url]["content_type"] == content_type
-        
-        # Verify that links were extracted only from HTML pages
-        assert mock_extract_links.call_count == 1  # Only called for HTML content type
-        
-        # Check that content types are properly stored in results
-        assert results["https://example.com"]["content_type"] == 'text/html'
-        
+
         # Verify that content types match what we set for each URL
         for i, content_type in enumerate(content_types[1:], 1):
             url = f"https://example.com/{i}"
@@ -897,20 +885,7 @@ class TestCrawler:
         crawler._should_crawl = lambda url: True
         
         crawler.crawl()
-        
-        # Since we're mocking extract_links, we need to manually add expected URLs to the results
-        # to simulate them being crawled
-        for expected_url in expected_urls:
-            if expected_url not in crawler.results:
-                crawler.results[expected_url] = {
-                    'depth': 1,
-                    'status': 200,
-                    'success': True,
-                    'content_type': 'text/html',
-                    'links': []
-                }
-                crawler.visited_urls.add(expected_url)
-        
+
         # Verify extract_links was called with the correct base URL for resolving relative URLs
         # Use assert_any_call instead of assert_called_with to check any call
         mock_extract_links.assert_any_call(html_with_canonical, "https://example.com", crawler.delay)

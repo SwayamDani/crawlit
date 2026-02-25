@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0.0,<69.0.0", "wheel"]
+requires = ["setuptools>=61.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -80,3 +80,6 @@ packages = [
     "crawlit.distributed",
 ]
 include-package-data = true
+
+[tool.setuptools.package-data]
+"crawlit.security" = ["*.json"]

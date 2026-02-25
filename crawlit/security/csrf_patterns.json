@@ -1,0 +1,51 @@
+{
+  "common_token_names": [
+    "csrf_token",
+    "csrftoken",
+    "_csrf",
+    "csrf",
+    "authenticity_token",
+    "_token",
+    "token",
+    "xsrf_token",
+    "xsrftoken",
+    "_xsrf",
+    "__RequestVerificationToken",
+    "form_build_id",
+    "_wpnonce"
+  ],
+  "meta_tag_names": [
+    "csrf-token",
+    "csrf_token",
+    "x-csrf-token",
+    "xsrf-token",
+    "xsrf_token",
+    "x-xsrf-token"
+  ],
+  "javascript_patterns": [
+    {
+      "name": "csrfToken",
+      "pattern": "csrfToken\\s*[=:]\\s*[\"']([^\"']+)[\"']"
+    },
+    {
+      "name": "csrf_token",
+      "pattern": "csrf_token\\s*[=:]\\s*[\"']([^\"']+)[\"']"
+    },
+    {
+      "name": "CSRF_TOKEN",
+      "pattern": "CSRF_TOKEN\\s*[=:]\\s*[\"']([^\"']+)[\"']"
+    },
+    {
+      "name": "_token",
+      "pattern": "_token\\s*[=:]\\s*[\"']([^\"']+)[\"']"
+    },
+    {
+      "name": "authenticity_token",
+      "pattern": "authenticity_token\\s*[=:]\\s*[\"']([^\"']+)[\"']"
+    },
+    {
+      "name": "xsrfToken",
+      "pattern": "xsrfToken\\s*[=:]\\s*[\"']([^\"']+)[\"']"
+    }
+  ]
+}
