@@ -1,3 +1,4 @@
+CHANGELOG.md
 CLI_FEATURES.md
 LICENSE
 MANIFEST.in
@@ -42,9 +43,11 @@ crawlit/parser/sitemap_parser.py
 crawlit/security/__init__.py
 crawlit/security/captcha_detector.py
 crawlit/security/csrf.py
+crawlit/security/csrf_patterns.json
 crawlit/security/headers.py
 crawlit/security/honeypot.py
 crawlit/security/waf.py
+crawlit/security/waf_signatures.json
 crawlit/storage/__init__.py
 crawlit/storage/mongo_storage.py
 crawlit/storage/postgres_storage.py
@@ -93,6 +96,7 @@ tests/test_captcha_detector.py
 tests/test_cli.py
 tests/test_content_extractor.py
 tests/test_cookie_persistence.py
+tests/test_crawl_scheduler.py
 tests/test_database.py
 tests/test_deduplication.py
 tests/test_distributed.py
@@ -104,12 +108,14 @@ tests/test_env_loader.py
 tests/test_exponential_backoff.py
 tests/test_image_extractor.py
 tests/test_incremental_crawling.py
+tests/test_incremental_state.py
 tests/test_integrated_features.py
 tests/test_integration.py
 tests/test_js_rendering.py
 tests/test_keyword_extractor.py
 tests/test_library.py
 tests/test_logging_config.py
+tests/test_page_cache.py
 tests/test_pdf_extractor.py
 tests/test_priority_queue.py
 tests/test_progress_tracker.py
@@ -129,5 +135,6 @@ tests/integration/__init__.py
 tests/integration/test_distributed_crawling.py
 tests/integration/test_end_to_end.py
 tests/integration/test_javascript_rendering.py
+tests/logs/.gitkeep
 tests/performance/__init__.py
 tests/performance/test_benchmarks.py
