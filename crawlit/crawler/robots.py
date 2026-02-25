@@ -68,42 +68,30 @@ class RobotsHandler:
                         # If it returns HTML or other non-text content, it's not a valid robots.txt
                         logger.warning(f"Invalid robots.txt at {robots_url} (content-type: {content_type})")
                         empty_parser = RobotFileParser()
-                        # Set the url to indicate an empty robots.txt
-                        empty_parser.set_url(robots_url)
-                        # Read it to mark it as having been loaded
-                        empty_parser.read()
+                        empty_parser.parse([])
                         self.parsers[domain] = empty_parser
                         return empty_parser
                 else:
                     # 404 or other HTTP errors mean no robots.txt file exists
                     logger.warning(f"No robots.txt found at {robots_url} (HTTP status: {response.status_code})")
                     empty_parser = RobotFileParser()
-                    # Set the url to indicate an empty robots.txt
-                    empty_parser.set_url(robots_url)
-                    # Read it to mark it as having been loaded
-                    empty_parser.read()
+                    empty_parser.parse([])
                     self.parsers[domain] = empty_parser
                     return empty_parser
-                    
+
             except Exception as http_err:
                 # Any exception means we couldn't fetch robots.txt
                 logger.warning(f"Error fetching robots.txt from {robots_url}: {http_err}")
                 empty_parser = RobotFileParser()
-                # Set the url to indicate an empty robots.txt
-                empty_parser.set_url(robots_url)
-                # Read it to mark it as having been loaded
-                empty_parser.read()
+                empty_parser.parse([])
                 self.parsers[domain] = empty_parser
                 return empty_parser
-                
+
         except Exception as e:
             logger.warning(f"Error fetching robots.txt from {robots_url}: {e}")
             # Return a permissive parser if robots.txt couldn't be fetched
             empty_parser = RobotFileParser()
-            # Set the url to indicate an empty robots.txt
-            empty_parser.set_url(robots_url)
-            # Read it to mark it as having been loaded
-            empty_parser.read()
+            empty_parser.parse([])
             self.parsers[domain] = empty_parser
             return empty_parser
 
