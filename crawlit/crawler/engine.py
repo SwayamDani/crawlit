@@ -122,6 +122,14 @@ class Crawler:
             js_wait_for_timeout (int, optional): Additional timeout in milliseconds after page load when using JS rendering. Defaults to None.
             js_browser_type (str, optional): Browser type for JS rendering: 'chromium', 'firefox', or 'webkit'. Defaults to 'chromium'.
         """
+        parsed_start = urlparse(start_url)
+        if parsed_start.scheme not in ('http', 'https'):
+            raise ValueError(
+                f"start_url must use http or https scheme, got: {start_url!r}"
+            )
+        if not parsed_start.netloc:
+            raise ValueError(f"start_url has no host: {start_url!r}")
+
         self.start_url: str = start_url
         self.max_depth: int = max_depth
         self.internal_only: bool = internal_only

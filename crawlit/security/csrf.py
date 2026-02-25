@@ -5,12 +5,29 @@ csrf.py - CSRF token extraction and handling
 Automatically detects and handles CSRF tokens in forms and AJAX requests.
 """
 
+import json
 import re
 import logging
+from pathlib import Path
 from typing import Dict, List, Optional, Any, Set
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
+
+_PATTERNS_FILE = Path(__file__).parent / "csrf_patterns.json"
+
+
+def _load_csrf_patterns() -> dict:
+    """Load CSRF pattern data from the external JSON file."""
+    try:
+        with open(_PATTERNS_FILE, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception as exc:
+        logger.error(f"Failed to load CSRF patterns from {_PATTERNS_FILE}: {exc}")
+        return {}
+
+
+_CSRF_PATTERNS = _load_csrf_patterns()
 
 
 class CSRFTokenExtractor:
@@ -20,21 +37,21 @@ class CSRFTokenExtractor:
     Supports multiple token formats and naming conventions.
     """
     
-    # Common CSRF token names
-    COMMON_TOKEN_NAMES = {
+    # Common CSRF token names (loaded from csrf_patterns.json)
+    COMMON_TOKEN_NAMES: Set[str] = set(_CSRF_PATTERNS.get("common_token_names", [
         'csrf_token', 'csrftoken', '_csrf', 'csrf',
         'authenticity_token', '_token', 'token',
         'xsrf_token', 'xsrftoken', '_xsrf',
-        '__RequestVerificationToken',  # ASP.NET
-        'form_build_id',  # Drupal
-        '_wpnonce',  # WordPress
-    }
-    
-    # Meta tag names for CSRF tokens
-    META_TAG_NAMES = {
+        '__RequestVerificationToken',
+        'form_build_id',
+        '_wpnonce',
+    ]))
+
+    # Meta tag names for CSRF tokens (loaded from csrf_patterns.json)
+    META_TAG_NAMES: Set[str] = set(_CSRF_PATTERNS.get("meta_tag_names", [
         'csrf-token', 'csrf_token', 'x-csrf-token',
         'xsrf-token', 'xsrf_token', 'x-xsrf-token',
-    }
+    ]))
     
     def __init__(self, html_content: str, url: str = ""):
         """
@@ -115,14 +132,17 @@ class CSRFTokenExtractor:
 
             script_content = script.string
 
-            # Mapping of token names to their regex patterns
+            # Mapping of token names to their regex patterns (loaded from csrf_patterns.json)
             patterns = [
-                ('csrfToken', r'csrfToken\s*[=:]\s*["\']([^"\']+)["\']'),
-                ('csrf_token', r'csrf_token\s*[=:]\s*["\']([^"\']+)["\']'),
-                ('CSRF_TOKEN', r'CSRF_TOKEN\s*[=:]\s*["\']([^"\']+)["\']'),
-                ('_token', r'_token\s*[=:]\s*["\']([^"\']+)["\']'),
-                ('authenticity_token', r'authenticity_token\s*[=:]\s*["\']([^"\']+)["\']'),
-                ('xsrfToken', r'xsrfToken\s*[=:]\s*["\']([^"\']+)["\']'),
+                (entry["name"], entry["pattern"])
+                for entry in _CSRF_PATTERNS.get("javascript_patterns", [
+                    {"name": "csrfToken", "pattern": r'csrfToken\s*[=:]\s*["\']([^"\']+)["\']'},
+                    {"name": "csrf_token", "pattern": r'csrf_token\s*[=:]\s*["\']([^"\']+)["\']'},
+                    {"name": "CSRF_TOKEN", "pattern": r'CSRF_TOKEN\s*[=:]\s*["\']([^"\']+)["\']'},
+                    {"name": "_token", "pattern": r'_token\s*[=:]\s*["\']([^"\']+)["\']'},
+                    {"name": "authenticity_token", "pattern": r'authenticity_token\s*[=:]\s*["\']([^"\']+)["\']'},
+                    {"name": "xsrfToken", "pattern": r'xsrfToken\s*[=:]\s*["\']([^"\']+)["\']'},
+                ])
             ]
 
             for token_name, pattern in patterns:

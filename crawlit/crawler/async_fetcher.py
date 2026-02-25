@@ -20,6 +20,34 @@ except ImportError:
     PLAYWRIGHT_AVAILABLE = False
     AsyncJavaScriptRenderer = None
 
+def _detect_charset_from_bytes(raw: bytes) -> Optional[str]:
+    """
+    Attempt to detect charset by scanning the first ~4 KB of raw HTML bytes for
+    <meta charset="..."> or <meta http-equiv="content-type" content="...charset=...">
+    tags.  Returns the charset name string, or None if not found.
+    """
+    import re as _re
+    # Scan only the first 4 KB to keep it fast
+    head = raw[:4096]
+    # Try as latin-1 (every byte is valid) so we can regex-scan
+    try:
+        snippet = head.decode('latin-1')
+    except Exception:
+        return None
+
+    # HTML5: <meta charset="utf-8">
+    m = _re.search(r'<meta[^>]+charset\s*=\s*["\']?\s*([\w-]+)', snippet, _re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+
+    # Legacy: <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    m = _re.search(r'charset\s*=\s*([\w-]+)', snippet, _re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+
+    return None
+
+
 async def fetch_page_async(
     url: str, 
     user_agent: str = "crawlit/1.0", 
@@ -116,12 +144,26 @@ async def fetch_page_async(
                     if 'text/' in content_type or 'html' in content_type or 'xml' in content_type or 'json' in content_type:
                         try:
                             content = await response.text()
-                        except UnicodeDecodeError:
-                            logger.warning(f"Unicode decode error for {url}, falling back to binary mode")
-                            content = await response.read()
-                            is_binary = True
-                        else:
                             is_binary = False
+                        except UnicodeDecodeError:
+                            # S6: charset declared in HTTP header was wrong (or absent).
+                            # Read raw bytes and attempt to detect charset from HTML
+                            # <meta charset> / <meta http-equiv> tags before giving up.
+                            raw = await response.read()
+                            detected = _detect_charset_from_bytes(raw)
+                            if detected:
+                                try:
+                                    content = raw.decode(detected)
+                                    is_binary = False
+                                    logger.debug(f"Decoded {url} using meta-detected charset: {detected}")
+                                except (UnicodeDecodeError, LookupError):
+                                    logger.warning(f"Unicode decode error for {url} even with detected charset {detected!r}, falling back to binary mode")
+                                    content = raw
+                                    is_binary = True
+                            else:
+                                logger.warning(f"Unicode decode error for {url}, falling back to binary mode")
+                                content = raw
+                                is_binary = True
                     else:
                         content = await response.read()
                         is_binary = True
