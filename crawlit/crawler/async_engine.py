@@ -59,7 +59,7 @@ class AsyncCrawler:
         start_url: str, 
         max_depth: int = 3, 
         internal_only: bool = True, 
-        user_agent: str = "crawlit/2.0", 
+        user_agent: str = "crawlit/1.0", 
         max_retries: int = 3, 
         timeout: int = 10, 
         delay: float = 0.1,
@@ -97,7 +97,7 @@ class AsyncCrawler:
             start_url (str): The URL where crawling will begin.
             max_depth (int, optional): Maximum crawling depth. Defaults to 3.
             internal_only (bool, optional): Whether to stay within the same domain. Defaults to True.
-            user_agent (str, optional): User agent string to use in HTTP requests. Defaults to "crawlit/2.0".
+            user_agent (str, optional): User agent string to use in HTTP requests. Defaults to "crawlit/1.0".
             max_retries (int, optional): Maximum number of retry attempts for failed requests. Defaults to 3.
             timeout (int, optional): Request timeout in seconds. Defaults to 10.
             delay (float, optional): Delay between requests in seconds. Defaults to 0.1.
@@ -119,25 +119,22 @@ class AsyncCrawler:
         self.internal_only = internal_only
         self.respect_robots = respect_robots
         self.visited_urls = set()  # Store visited URLs
-        # queue and semaphore are created inside crawl() so they always
-        # bind to the running event loop (required for Python 3.10+).
-        self.queue: asyncio.Queue = None  # type: ignore[assignment]
+        self.queue: asyncio.Queue = asyncio.Queue()
         self.results = {}  # Store results with metadata
         self.skipped_external_urls = set()  # Track skipped external URLs
 
         # Queue management
         self.max_queue_size: Optional[int] = max_queue_size
         self._paused: bool = False
-        
+
         # Request parameters
         self.user_agent = user_agent
         self.max_retries = max_retries
         self.timeout = timeout
         self.delay = delay
-        
+
         self.max_concurrent_requests = max_concurrent_requests
-        # semaphore is created inside crawl() — see queue note above.
-        self.semaphore: asyncio.Semaphore = None  # type: ignore[assignment]
+        self.semaphore: asyncio.Semaphore = asyncio.Semaphore(max_concurrent_requests)
         
         # Extract domain and path information for URL filtering
         parsed_url = urlparse(start_url)
@@ -310,8 +307,8 @@ class AsyncCrawler:
             
     async def crawl(self):
         """Start the asynchronous crawling process"""
-        # Initialize asyncio primitives here — inside a running event loop —
-        # so they bind to the correct loop (required for Python 3.10+).
+        # Reset queue and semaphore at the start of each crawl so that
+        # crawl() can safely be called more than once on the same instance.
         self.queue = asyncio.Queue()
         self.semaphore = asyncio.Semaphore(self.max_concurrent_requests)
 

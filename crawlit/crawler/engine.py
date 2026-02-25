@@ -60,7 +60,7 @@ class Crawler:
         start_url: str, 
         max_depth: int = 3, 
         internal_only: bool = True, 
-        user_agent: str = "crawlit/2.0", 
+        user_agent: str = "crawlit/1.0", 
         max_retries: int = 3, 
         timeout: int = 10, 
         delay: float = 0.1,
@@ -98,7 +98,7 @@ class Crawler:
             start_url (str): The URL where crawling will begin.
             max_depth (int, optional): Maximum crawling depth. Defaults to 3.
             internal_only (bool, optional): Whether to stay within the same domain. Defaults to True.
-            user_agent (str, optional): User agent string to use in HTTP requests. Defaults to "crawlit/2.0".
+            user_agent (str, optional): User agent string to use in HTTP requests. Defaults to "crawlit/1.0".
             max_retries (int, optional): Maximum number of retry attempts for failed requests. Defaults to 3.
             timeout (int, optional): Request timeout in seconds. Defaults to 10.
             delay (float, optional): Delay between requests in seconds. Defaults to 0.1.

@@ -21,7 +21,7 @@ except ImportError:
 
 async def fetch_page_async(
     url: str, 
-    user_agent: str = "crawlit/2.0", 
+    user_agent: str = "crawlit/1.0", 
     max_retries: int = 3, 
     timeout: int = 10,
     session: Optional[aiohttp.ClientSession] = None,
@@ -243,7 +243,7 @@ async def fetch_page_async(
     return False, f"Max retries ({max_retries}) exceeded", status_code or 429
 
 
-async def fetch_url_async(url: str, user_agent: str = "crawlit/2.0", 
+async def fetch_url_async(url: str, user_agent: str = "crawlit/1.0", 
                          max_retries: int = 3, timeout: int = 10):
     """
     Asynchronous version of fetch_url - provides same interface as the synchronous fetch_url

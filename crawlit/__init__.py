@@ -5,7 +5,7 @@ crawlit - Modular, Ethical Python Web Crawler
 A flexible web crawler library that can be used programmatically or via CLI.
 """
 
-__version__ = '0.2.0'
+__version__ = '1.0.0'
 
 # Export core functionality
 from crawlit.crawler.engine import Crawler

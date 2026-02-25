@@ -51,7 +51,7 @@ class RobotsHandler:
             # Use requests instead of urllib to handle redirects properly
             try:
                 from requests import get
-                response = get(robots_url, timeout=10, allow_redirects=True, headers={'User-Agent': 'crawlit/2.0'})
+                response = get(robots_url, timeout=10, allow_redirects=True, headers={'User-Agent': 'crawlit/1.0'})
                 
                 # Check if the request was successful
                 if response.status_code == 200:
@@ -128,6 +128,7 @@ class RobotsHandler:
             path = f"{path}?{parsed_url.query}"
         
         # Get the parser for this domain and use the standard parser
+        parser = self.get_robots_parser(base_url)
         is_allowed = parser.can_fetch(user_agent, path)
         
         if not is_allowed:
@@ -140,6 +141,40 @@ class RobotsHandler:
     def get_skipped_paths(self):
         """Get list of URLs skipped due to robots.txt rules"""
         return self.skipped_paths
+
+    def get_crawl_delay(self, url: str, user_agent: str = "*") -> Optional[float]:
+        """
+        Extract Crawl-delay from robots.txt for a URL and user agent.
+
+        Args:
+            url: The URL to check
+            user_agent: The user agent to check rules for (default: "*")
+
+        Returns:
+            Crawl-delay in seconds, or None if not specified
+        """
+        parsed_url = urllib.parse.urlparse(url)
+        domain = parsed_url.netloc
+
+        if domain not in self.robots_txt_content:
+            return None
+
+        lines = self.robots_txt_content[domain].splitlines()
+        current_agent = None
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if line.lower().startswith('user-agent:'):
+                current_agent = line.split(':', 1)[1].strip()
+            elif line.lower().startswith('crawl-delay:'):
+                if current_agent in (user_agent, '*'):
+                    try:
+                        return float(line.split(':', 1)[1].strip())
+                    except ValueError:
+                        pass
+        return None
+
 
 class AsyncRobotsHandler:
     """Asynchronous handler for robots.txt files.

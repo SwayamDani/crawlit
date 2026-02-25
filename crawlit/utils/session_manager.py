@@ -30,7 +30,7 @@ class SessionManager:
     
     def __init__(
         self, 
-        user_agent: str = "crawlit/2.0",
+        user_agent: str = "crawlit/1.0",
         timeout: int = 10,
         max_retries: int = 3,
         verify_ssl: bool = True,

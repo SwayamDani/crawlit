@@ -177,7 +177,7 @@ class SQLiteBackend(DatabaseBackend):
         # Extract metadata
         meta = metadata or {}
         start_url = meta.get('start_url', 'unknown')
-        user_agent = meta.get('user_agent', 'crawlit/2.0')
+        user_agent = meta.get('user_agent', 'crawlit/1.0')
         max_depth = meta.get('max_depth', 0)
         
         # Count statistics
@@ -562,7 +562,7 @@ class PostgreSQLBackend(DatabaseBackend):
         # Extract metadata
         meta = metadata or {}
         start_url = meta.get('start_url', 'unknown')
-        user_agent = meta.get('user_agent', 'crawlit/2.0')
+        user_agent = meta.get('user_agent', 'crawlit/1.0')
         max_depth = meta.get('max_depth', 0)
         
         # Count statistics
@@ -824,7 +824,7 @@ class MongoDBBackend(DatabaseBackend):
         crawl_doc = {
             'start_url': metadata.get('start_url', 'unknown') if metadata else 'unknown',
             'timestamp': datetime.now(),
-            'user_agent': metadata.get('user_agent', 'crawlit/2.0') if metadata else 'crawlit/2.0',
+            'user_agent': metadata.get('user_agent', 'crawlit/1.0') if metadata else 'crawlit/1.0',
             'max_depth': metadata.get('max_depth', 0) if metadata else 0,
             'total_urls': len(results),
             'successful_urls': sum(1 for r in results.values() if r.get('success', False)),

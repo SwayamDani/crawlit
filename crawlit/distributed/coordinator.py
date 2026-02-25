@@ -370,7 +370,7 @@ class CrawlWorker:
             # Fetch page
             response = fetch_page(
                 task.url,
-                user_agent=self.crawler_config.get('user_agent', 'crawlit/2.0 (distributed)'),
+                user_agent=self.crawler_config.get('user_agent', 'crawlit/1.0 (distributed)'),
                 max_retries=self.crawler_config.get('max_retries', 3),
                 timeout=self.crawler_config.get('timeout', 10),
                 **self.crawler_config
