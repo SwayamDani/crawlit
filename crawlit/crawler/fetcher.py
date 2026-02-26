@@ -20,9 +20,9 @@ except ImportError:
     JavaScriptRenderer = None
 
 def fetch_page(
-    url: str, 
-    user_agent: str = "crawlit/1.0", 
-    max_retries: int = 3, 
+    url: str,
+    user_agent: str = "crawlit/1.0",
+    max_retries: int = 3,
     timeout: int = 10,
     session: Optional[requests.Session] = None,
     use_js_rendering: bool = False,
@@ -30,11 +30,14 @@ def fetch_page(
     wait_for_selector: Optional[str] = None,
     wait_for_timeout: Optional[int] = None,
     proxy: Optional[Union[str, Dict[str, str]]] = None,
-    proxy_manager: Optional[Any] = None
+    proxy_manager: Optional[Any] = None,
+    max_response_bytes: Optional[int] = None,
+    extra_headers: Optional[Dict[str, str]] = None,
+    on_retry: Optional[Any] = None,
 ) -> Tuple[bool, Union[requests.Response, str], int]:
     """
     Fetch a web page with retries and proper error handling
-    
+
     Args:
         url: The URL to fetch
         user_agent: User agent string to use in the request
@@ -47,7 +50,10 @@ def fetch_page(
         wait_for_timeout: Additional timeout after page load (JS rendering only)
         proxy: Proxy configuration (URL string or dict with 'http'/'https' keys)
         proxy_manager: Optional ProxyManager for automatic proxy rotation
-        
+        max_response_bytes: Maximum response body size in bytes. Responses
+            larger than this limit are rejected to prevent memory exhaustion.
+            ``None`` (default) imposes no limit.
+
     Returns:
         tuple: (success, response_or_error, status_code)
     """
@@ -67,6 +73,9 @@ def fetch_page(
         "Accept": "text/html,application/xhtml+xml,application/xml",
         "Accept-Language": "en-US,en;q=0.9",
     }
+    # Merge caller-supplied extra headers (e.g. If-None-Match for incremental crawl)
+    if extra_headers:
+        headers.update(extra_headers)
     
     # Determine proxy to use
     proxies_dict = None
@@ -97,11 +106,12 @@ def fetch_page(
                 response = session.get(
                     url,
                     timeout=timeout,
-                    proxies=proxies_dict
+                    proxies=proxies_dict,
+                    headers=extra_headers,  # merges with session headers; None = no override
                 )
             else:
                 response = requests.get(
-                    url, 
+                    url,
                     headers=headers,
                     timeout=timeout,
                     proxies=proxies_dict
@@ -110,10 +120,41 @@ def fetch_page(
             
             # Check if the request was successful
             if response.status_code == 200:
+                # Enforce optional response body size limit
+                if max_response_bytes is not None:
+                    content_length = response.headers.get('Content-Length')
+                    if content_length and int(content_length) > max_response_bytes:
+                        logger.warning(
+                            f"Response for {url} exceeds size limit "
+                            f"({content_length} > {max_response_bytes} bytes), skipping"
+                        )
+                        return False, "Response too large", status_code
                 # Report success to proxy manager if using one
                 if proxy_manager and current_proxy:
                     proxy_manager.report_success(current_proxy)
                 return True, response, status_code
+            # HTTP 429 Too Many Requests — retry after the server-specified delay
+            elif response.status_code == 429:
+                retries += 1
+                if retries > max_retries:
+                    logger.warning(f"Max retries ({max_retries}) exceeded for {url} (HTTP 429)")
+                    return False, f"HTTP Error: {response.status_code}", status_code
+                # Respect Retry-After header if present; otherwise use exponential backoff
+                retry_after = response.headers.get('Retry-After')
+                if retry_after:
+                    try:
+                        backoff_time = min(float(retry_after), 120)
+                    except (ValueError, TypeError):
+                        backoff_time = min(2 ** retries, 32)
+                else:
+                    backoff_time = min(2 ** retries, 32)
+                logger.warning(f"HTTP 429 for {url}, retrying in {backoff_time}s (attempt {retries}/{max_retries})")
+                if on_retry is not None:
+                    try:
+                        on_retry(url, retries, f"HTTP 429 Too Many Requests", 429)
+                    except Exception:
+                        pass
+                time.sleep(backoff_time)
             # For 5xx server errors, retry if we haven't exceeded max retries
             elif 500 <= response.status_code < 600:
                 logger.warning(f"HTTP Error {response.status_code} for {url}, will retry")
@@ -125,9 +166,14 @@ def fetch_page(
                 # Exponential backoff before retry
                 backoff_time = min(2 ** retries, 32)  # Cap at 32 seconds
                 logger.debug(f"Waiting {backoff_time}s before retry (exponential backoff)")
+                if on_retry is not None:
+                    try:
+                        on_retry(url, retries, f"HTTP {response.status_code} Server Error", response.status_code)
+                    except Exception:
+                        pass
                 time.sleep(backoff_time)
             else:
-                # For client errors (4xx) and other status codes, don't retry
+                # For other client errors (4xx) and other status codes, don't retry
                 logger.warning(f"HTTP Error {response.status_code} for {url}")
                 return False, f"HTTP Error: {response.status_code}", status_code
                 
@@ -162,12 +208,17 @@ def fetch_page(
             retries += 1
             if retries > max_retries:
                 return False, error_message, status_code or 429
-            
+
             # Exponential backoff before retry
             backoff_time = min(2 ** retries, 32)  # Cap at 32 seconds
             logger.debug(f"Waiting {backoff_time}s before retry (exponential backoff)")
+            if on_retry is not None:
+                try:
+                    on_retry(url, retries, error_message, status_code)
+                except Exception:
+                    pass
             time.sleep(backoff_time)
-    
+
     # If we've exhausted all retries
     return False, f"Max retries ({max_retries}) exceeded", status_code or 429
 

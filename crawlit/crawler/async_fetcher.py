@@ -49,9 +49,9 @@ def _detect_charset_from_bytes(raw: bytes) -> Optional[str]:
 
 
 async def fetch_page_async(
-    url: str, 
-    user_agent: str = "crawlit/1.0", 
-    max_retries: int = 3, 
+    url: str,
+    user_agent: str = "crawlit/1.0",
+    max_retries: int = 3,
     timeout: int = 10,
     session: Optional[aiohttp.ClientSession] = None,
     use_js_rendering: bool = False,
@@ -59,11 +59,14 @@ async def fetch_page_async(
     wait_for_selector: Optional[str] = None,
     wait_for_timeout: Optional[int] = None,
     proxy: Optional[str] = None,
-    proxy_manager: Optional[Any] = None
+    proxy_manager: Optional[Any] = None,
+    max_response_bytes: Optional[int] = None,
+    extra_headers: Optional[Dict[str, str]] = None,
+    on_retry: Optional[Any] = None,
 ):
     """
     Asynchronously fetch a web page with retries and proper error handling
-    
+
     Args:
         url: The URL to fetch
         user_agent: User agent string to use in the request
@@ -76,7 +79,10 @@ async def fetch_page_async(
         wait_for_timeout: Additional timeout after page load (JS rendering only)
         proxy: Proxy URL string
         proxy_manager: Optional ProxyManager for automatic proxy rotation
-        
+        max_response_bytes: Maximum response body size in bytes. Responses
+            larger than this limit are rejected to prevent memory exhaustion.
+            ``None`` (default) imposes no limit.
+
     Returns:
         tuple: (success, response_or_error, status_code)
     """
@@ -111,6 +117,9 @@ async def fetch_page_async(
         "Accept": "text/html,application/xhtml+xml,application/xml",
         "Accept-Language": "en-US,en;q=0.9",
     }
+    # Merge caller-supplied extra headers (e.g. If-None-Match for incremental crawl)
+    if extra_headers:
+        headers.update(extra_headers)
     
     retries = 0
     status_code = None
@@ -131,14 +140,26 @@ async def fetch_page_async(
             logger.debug(f"Requesting {sanitize_url_for_log(url)} (attempt {retries + 1}/{max_retries + 1})")
 
             request_kwargs: Dict[str, Any] = {"proxy": proxy_url}
-            if not session:
-                # headers already baked into _own_session; pass nothing extra
-                pass
+            if session and extra_headers:
+                # Provided session: pass extra_headers per-request so they
+                # override session defaults for this call only.
+                request_kwargs["headers"] = extra_headers
+            # _own_session already has extra_headers baked in (see headers dict above)
 
             async with _session.get(url, **request_kwargs) as response:
                 status_code = response.status
 
                 if response.status == 200:
+                    # Enforce optional response body size limit via Content-Length header
+                    if max_response_bytes is not None:
+                        content_length_hdr = response.headers.get('Content-Length')
+                        if content_length_hdr and int(content_length_hdr) > max_response_bytes:
+                            logger.warning(
+                                f"Response for {url} exceeds size limit "
+                                f"({content_length_hdr} > {max_response_bytes} bytes), skipping"
+                            )
+                            return False, "Response too large", status_code
+
                     content_type = response.headers.get('Content-Type', '').lower()
 
                     if 'text/' in content_type or 'html' in content_type or 'xml' in content_type or 'json' in content_type:
@@ -180,6 +201,28 @@ async def fetch_page_async(
                         proxy_manager.report_success(current_proxy)
                     return True, response_obj, status_code
 
+                elif response.status == 429:
+                    # HTTP 429 Too Many Requests — retry after server-specified delay
+                    retries += 1
+                    if retries > max_retries:
+                        logger.warning(f"Max retries ({max_retries}) exceeded for {url} (HTTP 429)")
+                        return False, f"HTTP Error: {response.status}", status_code
+                    retry_after = response.headers.get('Retry-After')
+                    if retry_after:
+                        try:
+                            backoff_time = min(float(retry_after), 120)
+                        except (ValueError, TypeError):
+                            backoff_time = min(2 ** retries, 32)
+                    else:
+                        backoff_time = min(2 ** retries, 32)
+                    logger.warning(f"HTTP 429 for {url}, retrying in {backoff_time}s (attempt {retries}/{max_retries})")
+                    if on_retry is not None:
+                        try:
+                            on_retry(url, retries, "HTTP 429 Too Many Requests", 429)
+                        except Exception:
+                            pass
+                    await asyncio.sleep(backoff_time)
+
                 elif 500 <= response.status < 600:
                     logger.warning(f"HTTP Error {response.status} for {url}, will retry")
                     retries += 1
@@ -188,6 +231,11 @@ async def fetch_page_async(
                         return False, f"HTTP Error: {response.status}", status_code
                     backoff_time = min(2 ** retries, 32)
                     logger.debug(f"Waiting {backoff_time}s before retry (exponential backoff)")
+                    if on_retry is not None:
+                        try:
+                            on_retry(url, retries, f"HTTP {response.status} Server Error", response.status)
+                        except Exception:
+                            pass
                     await asyncio.sleep(backoff_time)
                 else:
                     logger.warning(f"HTTP Error {response.status} for {url}")
@@ -224,10 +272,15 @@ async def fetch_page_async(
             retries += 1
             if retries > max_retries:
                 return False, error_message, status_code or 429
-            
+
             # Exponential backoff before retry (only for exceptions)
             backoff_time = min(2 ** retries, 32)  # Cap at 32 seconds
             logger.debug(f"Waiting {backoff_time}s before retry (exponential backoff)")
+            if on_retry is not None:
+                try:
+                    on_retry(url, retries, error_message, status_code)
+                except Exception:
+                    pass
             await asyncio.sleep(backoff_time)
 
       # If we've exhausted all retries

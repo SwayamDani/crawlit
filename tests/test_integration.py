@@ -102,7 +102,7 @@ class TestIntegration:
         assert response.status_code == 200
         
         # Parse the links from the main page
-        links = extract_links(response.text, mock_website, delay=0.1)
+        links = extract_links(response.text, mock_website)
         
         # Check that all expected links were found
         assert len(links) >= 4  # At least the 4 links we put in the HTML

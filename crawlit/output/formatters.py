@@ -5,9 +5,20 @@ formatters.py - Output formatters for crawler results
 
 import json
 import csv
+import html as _html
 import os
 import datetime
 from pathlib import Path
+
+_BLOCKED_SCHEMES = ('javascript:', 'data:', 'vbscript:')
+
+
+def _safe_href(url: object) -> str:
+    """Return an HTML-attribute-safe href value, blocking dangerous URL schemes."""
+    s = str(url).lstrip()
+    if s.lower().startswith(_BLOCKED_SCHEMES):
+        return '#'
+    return _html.escape(str(url))
 
 
 def create_output_file(output_path):
@@ -396,24 +407,24 @@ def save_as_html(results, output_file, timestamp):
         content_type = data.get('content_type', 'N/A')
         error = data.get('error', '')
         links = data.get('links', [])
-        
+
         status_class = "status-success" if success else "status-error"
-        
+
         html += f"""
         <div class="url-card">
-            <h3>{url}</h3>
+            <h3>{_html.escape(str(url))}</h3>
             <div class="details">
                 <div class="detail-item">
-                    <strong>Status:</strong> <span class="{status_class}">{status}</span>
+                    <strong>Status:</strong> <span class="{status_class}">{_html.escape(str(status))}</span>
                 </div>
                 <div class="detail-item">
-                    <strong>Depth:</strong> {depth}
+                    <strong>Depth:</strong> {_html.escape(str(depth))}
                 </div>
                 <div class="detail-item">
-                    <strong>Content Type:</strong> {content_type}
+                    <strong>Content Type:</strong> {_html.escape(str(content_type))}
                 </div>
                 <div class="detail-item">
-                    <strong>Success:</strong> {success}
+                    <strong>Success:</strong> {_html.escape(str(success))}
                 </div>
             </div>
 """
@@ -422,10 +433,10 @@ def save_as_html(results, output_file, timestamp):
         if error:
             html += f"""
             <div class="detail-item">
-                <strong>Error:</strong> <span class="status-error">{error}</span>
+                <strong>Error:</strong> <span class="status-error">{_html.escape(str(error))}</span>
             </div>
 """
-        
+
         # Add links if there are any
         if links:
             html += f"""
@@ -436,8 +447,10 @@ def save_as_html(results, output_file, timestamp):
 """
             # Show all links in HTML
             for link in links:
-                html += f'                        <li><a href="{link}" target="_blank">{link}</a></li>\n'
-                
+                safe_link_href = _safe_href(link)
+                escaped_link = _html.escape(str(link))
+                html += f'                        <li><a href="{safe_link_href}" target="_blank">{escaped_link}</a></li>\n'
+
             html += """
                     </ul>
                 </div>
@@ -464,15 +477,20 @@ def save_as_html(results, output_file, timestamp):
                 width = img.get('width', 'N/A')
                 height = img.get('height', 'N/A')
                 dimensions = f"{width}x{height}" if width != 'N/A' and height != 'N/A' else 'N/A'
-                
+                safe_src_href = _safe_href(src)
+                escaped_src = _html.escape(str(src))
+                escaped_alt = _html.escape(str(alt))
+                escaped_dim = _html.escape(str(dimensions))
+                escaped_basename = _html.escape(str(src).split('/')[-1])
+
                 html += f"""
                         <tr>
-                            <td style="border: 1px solid #ddd; padding: 8px;"><a href="{src}" target="_blank">{src.split('/')[-1]}</a></td>
-                            <td style="border: 1px solid #ddd; padding: 8px;">{alt}</td>
-                            <td style="border: 1px solid #ddd; padding: 8px;">{dimensions}</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;"><a href="{safe_src_href}" target="_blank">{escaped_basename}</a></td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">{escaped_alt}</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">{escaped_dim}</td>
                         </tr>
 """
-            
+
             html += """
                     </table>
                 </div>
@@ -497,11 +515,11 @@ def save_as_html(results, output_file, timestamp):
                 score = keyword_scores.get(keyword, 'N/A')
                 html += f"""
                         <tr>
-                            <td style="border: 1px solid #ddd; padding: 8px;">{keyword}</td>
-                            <td style="border: 1px solid #ddd; padding: 8px;">{score}</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">{_html.escape(str(keyword))}</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">{_html.escape(str(score))}</td>
                         </tr>
 """
-            
+
             html += """
                     </table>
                 </div>
@@ -518,8 +536,8 @@ def save_as_html(results, output_file, timestamp):
                     <ul>
 """
             for phrase in keyphrases:
-                html += f'                        <li>{phrase}</li>\n'
-                
+                html += f'                        <li>{_html.escape(str(phrase))}</li>\n'
+
             html += """
                     </ul>
                 </div>
@@ -545,7 +563,7 @@ def save_as_html(results, output_file, timestamp):
 """
                     for cell in row:
                         html += f"""
-                            <td style="border: 1px solid #ddd; padding: 8px;">{cell}</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">{_html.escape(str(cell))}</td>
 """
                     html += """
                         </tr>
@@ -554,7 +572,7 @@ def save_as_html(results, output_file, timestamp):
                     </table>
                     <br>
 """
-            
+
             html += """
                 </div>
             </div>
