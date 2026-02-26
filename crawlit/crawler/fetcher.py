@@ -114,6 +114,23 @@ def fetch_page(
                 if proxy_manager and current_proxy:
                     proxy_manager.report_success(current_proxy)
                 return True, response, status_code
+            # HTTP 429 Too Many Requests — retry after the server-specified delay
+            elif response.status_code == 429:
+                retries += 1
+                if retries > max_retries:
+                    logger.warning(f"Max retries ({max_retries}) exceeded for {url} (HTTP 429)")
+                    return False, f"HTTP Error: {response.status_code}", status_code
+                # Respect Retry-After header if present; otherwise use exponential backoff
+                retry_after = response.headers.get('Retry-After')
+                if retry_after:
+                    try:
+                        backoff_time = min(float(retry_after), 120)
+                    except (ValueError, TypeError):
+                        backoff_time = min(2 ** retries, 32)
+                else:
+                    backoff_time = min(2 ** retries, 32)
+                logger.warning(f"HTTP 429 for {url}, retrying in {backoff_time}s (attempt {retries}/{max_retries})")
+                time.sleep(backoff_time)
             # For 5xx server errors, retry if we haven't exceeded max retries
             elif 500 <= response.status_code < 600:
                 logger.warning(f"HTTP Error {response.status_code} for {url}, will retry")
@@ -127,7 +144,7 @@ def fetch_page(
                 logger.debug(f"Waiting {backoff_time}s before retry (exponential backoff)")
                 time.sleep(backoff_time)
             else:
-                # For client errors (4xx) and other status codes, don't retry
+                # For other client errors (4xx) and other status codes, don't retry
                 logger.warning(f"HTTP Error {response.status_code} for {url}")
                 return False, f"HTTP Error: {response.status_code}", status_code
                 

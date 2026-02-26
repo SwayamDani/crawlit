@@ -792,30 +792,14 @@ class AsyncCrawler:
     def get_queue_stats(self) -> Dict[str, Any]:
         """
         Get statistics about the current queue.
-        
+
+        Takes a non-destructive snapshot of the queue's internal deque so that
+        active workers are not interrupted.
+
         Returns:
             Dictionary with queue statistics
         """
-        # Convert asyncio.Queue to deque for stats
-        queue_list = []
-        temp_queue = asyncio.Queue()
-        
-        # Drain the queue and rebuild it
-        while not self.queue.empty():
-            try:
-                item = self.queue.get_nowait()
-                queue_list.append(item)
-                temp_queue.put_nowait(item)
-            except asyncio.QueueEmpty:
-                break
-        
-        # Restore the queue
-        while not temp_queue.empty():
-            try:
-                item = temp_queue.get_nowait()
-                self.queue.put_nowait(item)
-            except asyncio.QueueEmpty:
-                break
-        
-        queue_deque = deque(queue_list)
-        return QueueManager.get_queue_stats(queue_deque)
+        # Read the internal deque without draining — same safe pattern used by
+        # save_state().  This avoids the race-prone drain-and-rebuild loop.
+        queue_snapshot = deque(self.queue._queue)  # type: ignore[attr-defined]
+        return QueueManager.get_queue_stats(queue_snapshot)

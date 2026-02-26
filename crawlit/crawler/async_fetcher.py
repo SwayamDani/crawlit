@@ -180,6 +180,23 @@ async def fetch_page_async(
                         proxy_manager.report_success(current_proxy)
                     return True, response_obj, status_code
 
+                elif response.status == 429:
+                    # HTTP 429 Too Many Requests — retry after server-specified delay
+                    retries += 1
+                    if retries > max_retries:
+                        logger.warning(f"Max retries ({max_retries}) exceeded for {url} (HTTP 429)")
+                        return False, f"HTTP Error: {response.status}", status_code
+                    retry_after = response.headers.get('Retry-After')
+                    if retry_after:
+                        try:
+                            backoff_time = min(float(retry_after), 120)
+                        except (ValueError, TypeError):
+                            backoff_time = min(2 ** retries, 32)
+                    else:
+                        backoff_time = min(2 ** retries, 32)
+                    logger.warning(f"HTTP 429 for {url}, retrying in {backoff_time}s (attempt {retries}/{max_retries})")
+                    await asyncio.sleep(backoff_time)
+
                 elif 500 <= response.status < 600:
                     logger.warning(f"HTTP Error {response.status} for {url}, will retry")
                     retries += 1

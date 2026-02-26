@@ -43,6 +43,7 @@ test_cli/
 
 # OS specific files
 .DS_Store
+**/.DS_Store
 Thumbs.db
 
 # Exclude specific JSON files except examples and package data
@@ -56,7 +57,7 @@ Thumbs.db
 *.sqlite3
 
 # Temporary Claude Code working directories
-tmpclaude-*/
+tmpclaude-*
 
 # Log files
 *.log

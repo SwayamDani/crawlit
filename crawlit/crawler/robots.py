@@ -434,7 +434,21 @@ class RobotsTxt:
         return self.handler.can_fetch(full_url, self.user_agent)
     
     def get_sitemaps(self):
-        """Get sitemaps from robots.txt"""
-        # Since we're using urllib.robotparser, we can access the sitemap URLs
-        # directly from the parser
-        return self.parser.sitemap_urls
+        """Get sitemap URLs declared in robots.txt via 'Sitemap:' directives.
+
+        Returns:
+            list: List of sitemap URL strings found in robots.txt.
+        """
+        parsed = urllib.parse.urlparse(self.url)
+        domain = parsed.netloc
+        robots_text = self.handler.robots_txt_content.get(domain)
+        if not robots_text:
+            return []
+        sitemaps = []
+        for line in robots_text.splitlines():
+            line = line.strip()
+            if line.lower().startswith('sitemap:'):
+                sitemap_url = line.split(':', 1)[1].strip()
+                if sitemap_url:
+                    sitemaps.append(sitemap_url)
+        return sitemaps

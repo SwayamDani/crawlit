@@ -445,15 +445,17 @@ class Crawler:
                     break
             
             current_url, depth = self.queue.popleft()
-            
-            # Skip if we've already visited this URL
+
+            # Skip if we've already visited this URL or exceeded max depth
             if current_url in self.visited_urls:
                 continue
-                
-            # Skip if we've exceeded the maximum depth
             if depth > self.max_depth:
                 continue
-            
+
+            # Mark as visited here (before processing) so that any links
+            # added to the queue during processing cannot re-enqueue this URL.
+            self.visited_urls.add(current_url)
+
             # Rate limiting is handled in _process_url
             # Process the URL
             self._process_url(current_url, depth, session)
@@ -482,14 +484,22 @@ class Crawler:
                         if not self.queue:
                             break
                         current_url, depth = self.queue.popleft()
-                    
-                    # Check if already visited (thread-safe)
+
+                    # Check depth limit before acquiring the visited lock
+                    if depth > self.max_depth:
+                        continue
+
+                    # Atomically check-and-mark as visited before submitting.
+                    # This prevents the race where two loop iterations dequeue
+                    # the same URL, both pass the "in visited_urls" check, and
+                    # both submit a worker — resulting in a double-fetch.
                     with self._visited_lock:
                         if current_url in self.visited_urls:
                             continue
-                        if depth > self.max_depth:
-                            continue
-                    
+                        # Mark as visited now, before the worker starts, so no
+                        # other iteration can submit the same URL concurrently.
+                        self.visited_urls.add(current_url)
+
                     # Submit task to thread pool
                     future = executor.submit(self._process_url, current_url, depth, session)
                     futures[future] = (current_url, depth)
@@ -575,13 +585,7 @@ class Crawler:
                 self.results[url]['success'] = success
                 self.results[url]['headers'] = headers
                 self.results[url]['content_type'] = cached_content_type
-            
-            # Mark URL as visited (thread-safe)
-            with self._visited_lock:
-                if url in self.visited_urls:
-                    return  # Already processed by another thread
-                self.visited_urls.add(url)
-            
+
             # Process cached content similar to fresh fetch
             if success and content and cached_content_type.split(';')[0].strip().lower() == 'text/html':
                 # Process cached HTML content
@@ -602,12 +606,6 @@ class Crawler:
             proxy=self.proxy,
             proxy_manager=self.proxy_manager
         )
-        
-        # Mark URL as visited (thread-safe)
-        with self._visited_lock:
-            if url in self.visited_urls:
-                return  # Already processed by another thread
-            self.visited_urls.add(url)
         
         # Update results (thread-safe)
         with self._results_lock:
