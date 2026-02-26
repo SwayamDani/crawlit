@@ -3,10 +3,12 @@
 async_engine.py - Asynchronous crawler engine
 """
 
+import asyncio
+import inspect
 import logging
 import re
-import asyncio
 from collections import deque
+from datetime import datetime, timezone
 from urllib.parse import urlparse, urljoin
 from typing import List, Dict, Set, Optional, Any
 import time
@@ -36,6 +38,10 @@ from ..utils.sitemap import SitemapParser, get_sitemaps_from_robots_async
 from ..utils.rate_limiter import AsyncRateLimiter
 from ..utils.deduplication import ContentDeduplicator
 from ..utils.budget_tracker import AsyncBudgetTracker
+from ..models.page_artifact import (
+    PageArtifact, HTTPInfo, ContentInfo, CrawlMeta, DownloadRecord,
+    CrawlJob, CrawlError, ArtifactSource,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +97,22 @@ class AsyncCrawler:
         js_browser_type: str = "chromium",
         proxy: Optional[str] = None,
         proxy_manager: Optional['ProxyManager'] = None,
-        budget_tracker: Optional[AsyncBudgetTracker] = None
+        budget_tracker: Optional[AsyncBudgetTracker] = None,
+        # --- Plugin extension points ---
+        extractors: Optional[List[Any]] = None,
+        pipelines: Optional[List[Any]] = None,
+        enable_pdf_extraction: bool = False,
+        enable_js_embedded_data: bool = False,
+        # --- Composable config (overrides individual kwargs when supplied) ---
+        config: Optional[Any] = None,
+        # --- Fetch abstraction ---
+        fetcher: Optional[Any] = None,
+        # --- Incremental crawling ---
+        incremental: Optional[Any] = None,
+        # --- Crawl job metadata ---
+        run_id: Optional[str] = None,
+        # --- Operational event log ---
+        event_log: Optional[Any] = None,
     ):
         """Initialize the crawler with given parameters.
         
@@ -316,9 +337,123 @@ class AsyncCrawler:
                     timeout=timeout * 1000,  # Convert to milliseconds
                     headless=True
                 )
-            
+
+        # --- Apply CrawlerConfig overrides ---
+        if config is not None:
+            self._apply_config(config)
+
+        # --- Plugin extension points ---
+        self.extractors: List[Any] = list(extractors or [])
+        self.pipelines: List[Any] = list(pipelines or [])
+        self.enable_pdf_extraction: bool = enable_pdf_extraction
+        self.enable_js_embedded_data: bool = enable_js_embedded_data
+
+        if self.enable_js_embedded_data:
+            from ..extractors.js_embedded_data import JSEmbeddedDataExtractor
+            if not any(isinstance(e, JSEmbeddedDataExtractor) for e in self.extractors):
+                self.extractors.append(JSEmbeddedDataExtractor())
+                logger.info("JS embedded data extraction enabled")
+
+        # Artifact store
+        self.artifacts: Dict[str, PageArtifact] = {}
+
+        # Discovery metadata (populated when enqueuing, consumed in _process_url)
+        self._discovered_from: Dict[str, str] = {}
+        self._discovery_method: Dict[str, str] = {}
+
+        # --- Fetch abstraction (optional custom AsyncFetcher) ---
+        self.fetcher: Optional[Any] = fetcher
+
+        # --- Incremental crawling ---
+        self.incremental: Optional[Any] = incremental
+        if self.incremental:
+            logger.info("Incremental crawling enabled")
+
+        # --- Crawl job / run metadata ---
+        self.job = CrawlJob(
+            run_id=run_id or __import__("uuid").uuid4().hex,
+            started_at=None,   # set at crawl() time
+            seed_urls=[self.start_url],
+        )
+
+        # --- Event log ---
+        from ..utils.event_log import CrawlEventLog
+        self.event_log: Optional[CrawlEventLog] = event_log  # type: ignore[assignment]
+        if self.event_log is not None:
+            self.event_log.set_run_id(self.job.run_id)
+            logger.info("Event log enabled")
+
+        if self.extractors:
+            logger.info(f"Registered extractors: {[e.name for e in self.extractors]}")
+        if self.pipelines:
+            logger.info(f"Registered pipelines: {[type(p).__name__ for p in self.pipelines]}")
+
+    def _apply_config(self, config: Any) -> None:
+        """Apply CrawlerConfig fields to override current instance settings."""
+        if getattr(config, "start_url", None):
+            self.start_url = config.start_url
+        for attr in (
+            "max_depth", "internal_only", "same_path_only", "respect_robots",
+            "max_queue_size",
+        ):
+            if hasattr(config, attr):
+                setattr(self, attr, getattr(config, attr))
+        if hasattr(config, "max_concurrent_requests"):
+            self.max_concurrent_requests = config.max_concurrent_requests
+
+        fetch = getattr(config, "fetch", None)
+        if fetch:
+            for attr in ("user_agent", "max_retries", "timeout", "proxy",
+                         "use_js_rendering", "js_wait_for_selector",
+                         "js_wait_for_timeout", "js_browser_type"):
+                if hasattr(fetch, attr):
+                    setattr(self, attr, getattr(fetch, attr))
+
+        rl = getattr(config, "rate_limit", None)
+        if rl:
+            if hasattr(rl, "delay"):
+                self.delay = rl.delay
+            if hasattr(rl, "use_per_domain_delay"):
+                self.use_per_domain_delay = rl.use_per_domain_delay
+
+        out = getattr(config, "output", None)
+        if out:
+            if getattr(out, "write_jsonl", False) and getattr(out, "jsonl_path", None):
+                from ..pipelines.jsonl_writer import JSONLWriter
+                self.pipelines.append(JSONLWriter(out.jsonl_path))
+            if getattr(out, "write_blobs", False) and getattr(out, "blobs_dir", None):
+                from ..pipelines.blob_store import BlobStore
+                self.pipelines.append(BlobStore(out.blobs_dir))
+            if getattr(out, "write_edges", False) and getattr(out, "edges_path", None):
+                from ..pipelines.edges_writer import EdgesWriter
+                self.pipelines.append(EdgesWriter(out.edges_path))
+
+        if hasattr(config, "enable_image_extraction"):
+            self.image_extraction_enabled = config.enable_image_extraction
+        if hasattr(config, "enable_keyword_extraction"):
+            self.keyword_extraction_enabled = config.enable_keyword_extraction
+        if hasattr(config, "enable_table_extraction"):
+            self.table_extraction_enabled = config.enable_table_extraction
+        if hasattr(config, "enable_content_extraction"):
+            self.content_extraction_enabled = config.enable_content_extraction
+        if hasattr(config, "enable_pdf_extraction"):
+            self.enable_pdf_extraction = config.enable_pdf_extraction
+        if hasattr(config, "enable_js_embedded_data"):
+            self.enable_js_embedded_data = config.enable_js_embedded_data
+
     async def crawl(self):
         """Start the asynchronous crawling process"""
+        # Record job start time
+        self.job.started_at = datetime.now(timezone.utc)
+
+        # Emit CRAWL_START event
+        if self.event_log is not None:
+            self.event_log.crawl_start(
+                seed_urls=self.job.seed_urls,
+                max_depth=self.max_depth,
+                run_id=self.job.run_id,
+            )
+
         # Reset queue and semaphore at the start of each crawl so that
         # crawl() can safely be called more than once on the same instance.
         self.queue = asyncio.Queue()
@@ -378,7 +513,11 @@ class AsyncCrawler:
             await self.session_manager.close_async_session()
         except Exception as e:
             logger.warning(f"Error closing async session: {e}")
-    
+
+        # Emit CRAWL_END event
+        if self.event_log is not None:
+            self.event_log.crawl_end(pages_crawled=len(self.visited_urls))
+
     async def _worker(self):
         """Worker task for processing URLs from the queue"""
         while True:
@@ -442,7 +581,33 @@ class AsyncCrawler:
                     await asyncio.sleep(self.delay)
             
             logger.info(f"Crawling: {url} (depth: {depth})")
-            
+
+            # Retrieve discovery context recorded when this URL was enqueued
+            discovered_from = self._discovered_from.pop(url, None)
+            discovery_method = self._discovery_method.pop(url, "seed" if depth == 0 else "link")
+
+            # Derive source type + site from discovery method
+            _source_type = (
+                "seed"      if discovery_method == "seed"    else
+                "sitemap"   if discovery_method == "sitemap" else
+                "html_link" if discovery_method == "link"    else
+                "unknown"
+            )
+            _site = urlparse(url).netloc or None
+
+            # Build the PageArtifact early so extractors/pipelines always receive one
+            artifact = PageArtifact(
+                url=url,
+                fetched_at=datetime.now(timezone.utc),
+                source=ArtifactSource(type=_source_type, site=_site),
+                crawl=CrawlMeta(
+                    depth=depth,
+                    discovered_from=discovered_from,
+                    discovery_method=discovery_method,
+                    run_id=self.job.run_id,
+                ),
+            )
+
             # Initialize result data for this URL
             self.results[url] = {
                 'depth': depth,
@@ -453,15 +618,24 @@ class AsyncCrawler:
                 'error': None,
                 'success': False
             }
-            
+
+            # --- Incremental: get conditional headers (If-None-Match / If-Modified-Since) ---
+            incremental_headers: Dict[str, str] = {}
+            if self.incremental:
+                try:
+                    incremental_headers = self.incremental.get_conditional_headers(url) or {}
+                except Exception as _e:
+                    logger.debug(f"Incremental header lookup failed for {url}: {_e}")
+
             # Get async session from session manager
             session = await self.session_manager.get_async_session()
-            
-            # Fetch the page asynchronously with session
+
+            # Fetch the page asynchronously with session (capture wall-clock time)
+            _t0 = time.perf_counter()
             success, response_or_error, status_code = await async_fetch_page(
-                url, 
-                self.user_agent, 
-                self.max_retries, 
+                url,
+                self.user_agent,
+                self.max_retries,
                 self.timeout,
                 session=session,
                 use_js_rendering=self.use_js_rendering,
@@ -469,12 +643,33 @@ class AsyncCrawler:
                 wait_for_selector=self.js_wait_for_selector,
                 wait_for_timeout=self.js_wait_for_timeout,
                 proxy=self.proxy,
-                proxy_manager=self.proxy_manager
+                proxy_manager=self.proxy_manager,
+                extra_headers=incremental_headers if incremental_headers else None,
+                on_retry=(
+                    self.event_log.fetch_retry if self.event_log is not None else None
+                ),
             )
-            
+            _elapsed_ms = (time.perf_counter() - _t0) * 1000
+
+            # --- Incremental: handle 304 Not Modified ---
+            if status_code == 304:
+                logger.debug(f"304 Not Modified for {url} — skipping reprocessing")
+                artifact.http = HTTPInfo(status=304, content_type=None)
+                artifact.add_error(CrawlError.not_modified())
+                if self.event_log is not None:
+                    self.event_log.incremental_hit(url)
+                self.results[url]['status'] = 304
+                self.artifacts[url] = artifact
+                if self.incremental:
+                    try:
+                        self.incremental.record_response(url, 304)
+                    except Exception as _e:
+                        logger.debug(f"Incremental record failed for {url}: {_e}")
+                return
+
             # Record the HTTP status code
             self.results[url]['status'] = status_code
-            
+
             # Update success flag based on fetch result
             self.results[url]['success'] = success
             
@@ -505,25 +700,54 @@ class AsyncCrawler:
                     if bytes_downloaded > 0:
                         await self.budget_tracker.record_page(bytes_downloaded)
                 
+                # Measure response size (best-effort for aiohttp)
+                _response_bytes: Optional[int] = None
+                try:
+                    if hasattr(response_or_error, '_body') and response_or_error._body:
+                        _response_bytes = len(response_or_error._body)
+                    elif hasattr(response_or_error, 'content_length') and response_or_error.content_length:
+                        _response_bytes = response_or_error.content_length
+                except Exception:
+                    pass
+
+                # Populate artifact HTTP info (with timing and size metrics)
+                headers_dict = dict(response.headers)
+                artifact.http = HTTPInfo(
+                    status=status_code,
+                    headers=headers_dict,
+                    content_type=response.headers.get('Content-Type'),
+                    etag=response.headers.get('ETag'),
+                    last_modified=response.headers.get('Last-Modified'),
+                    cache_control=response.headers.get('Cache-Control'),
+                    elapsed_ms=round(_elapsed_ms, 2),
+                    response_bytes=_response_bytes,
+                )
+
                 try:
                     # Initialize links list for all URLs
                     links = []
-                    
+
                     # Process the page to extract links if it's HTML
                     content_type = response.headers.get('Content-Type', '')
-                    if content_type.split(';')[0].strip().lower() == 'text/html':
+                    content_type_base = content_type.split(';')[0].strip().lower()
+
+                    if content_type_base == 'text/html':
                         # Get the HTML content
                         html_content = await response.text()
-                        
+
                         # Check for duplicate content
                         if self.content_deduplicator.enabled:
                             if self.content_deduplicator.is_duplicate(html_content, url):
                                 logger.info(f"Skipping duplicate content at {url}")
+                                if self.event_log is not None:
+                                    import hashlib as _hl
+                                    _h = _hl.sha256(html_content.encode("utf-8", errors="replace")).hexdigest()[:16]
+                                    self.event_log.dedupe_hit(url, content_hash=_h)
                                 duplicate_urls = self.content_deduplicator.get_duplicate_urls(url)
                                 self.results[url]['duplicate'] = True
                                 if duplicate_urls:
                                     self.results[url]['duplicate_of'] = list(duplicate_urls)
-                                
+
                                 # Still record progress but mark as duplicate
                                 if self.progress_tracker:
                                     self.progress_tracker.record_url(
@@ -534,16 +758,19 @@ class AsyncCrawler:
                                         metadata={'duplicate': True}
                                     )
                                 return  # Skip processing duplicate content
-                        
+
                         # Store HTML content using storage manager
                         stored_html = self.storage_manager.store_html(url, html_content)
                         if stored_html is not None:
                             self.results[url]['html_content'] = stored_html
-                        
+
+                        # Populate artifact content
+                        artifact.content = ContentInfo(raw_html=html_content)
+
                         # Use ContentExtractor to extract all page metadata (async version) if enabled
                         if self.content_extraction_enabled and self.content_extractor:
                             content_data = await self.content_extractor.extract_content_async(html_content, url, response)
-                            
+
                             # Merge content extractor results with page results
                             self.results[url].update({
                                 'title': content_data.get('title'),
@@ -556,18 +783,26 @@ class AsyncCrawler:
                                 'page_type': content_data.get('page_type'),
                                 'last_modified': content_data.get('last_modified')
                             })
+                            # Mirror into artifact
+                            for key in ('title', 'meta_description', 'meta_keywords',
+                                        'canonical_url', 'language', 'headings',
+                                        'images_with_context', 'page_type', 'last_modified'):
+                                val = content_data.get(key)
+                                if val is not None:
+                                    artifact.extracted[key] = val
                             logger.debug(f"Extracted metadata for {url}")
-                        
+
                         # Extract links from HTML content
                         links = extract_links(html_content, url)
                         logger.debug(f"Extracted {len(links)} links from HTML content at {url}")
-                        
+
                         # Extract images from the page if extraction is enabled
                         if self.image_extraction_enabled:
                             images = self.image_extractor.extract_images(html_content)
                             self.results[url]['images'] = images
+                            artifact.extracted['images'] = images
                             logger.debug(f"Extracted {len(images)} images from {url}")
-                        
+
                         # Extract keywords from the page if extraction is enabled
                         if self.keyword_extraction_enabled:
                             keywords_data = self.keyword_extractor.extract_keywords(html_content, include_scores=True)
@@ -575,18 +810,37 @@ class AsyncCrawler:
                             self.results[url]['keyword_scores'] = keywords_data['scores']
                             keyphrases = self.keyword_extractor.extract_keyphrases(html_content)
                             self.results[url]['keyphrases'] = keyphrases
+                            artifact.extracted['keywords'] = keywords_data['keywords']
+                            artifact.extracted['keyword_scores'] = keywords_data['scores']
+                            artifact.extracted['keyphrases'] = keyphrases
                             logger.debug(f"Extracted {len(keywords_data['keywords'])} keywords and {len(keyphrases)} keyphrases from {url}")
-                        
+
                         # Extract tables from the page if extraction is enabled
                         if self.table_extraction_enabled:
                             try:
                                 tables = extract_tables(html_content, min_rows=1, min_columns=1)
                                 self.results[url]['tables'] = tables
+                                artifact.extracted['tables'] = tables
                                 logger.debug(f"Extracted {len(tables)} tables from {url}")
                             except Exception as e:
                                 logger.error(f"Error extracting tables from {url}: {e}")
                                 self.results[url]['tables'] = []
-                        
+
+                        # Run plugin extractors on the HTML
+                        for extractor in self.extractors:
+                            try:
+                                if inspect.iscoroutinefunction(extractor.extract):
+                                    result = await extractor.extract(html_content, artifact)
+                                else:
+                                    result = extractor.extract(html_content, artifact)
+                                if result is not None:
+                                    artifact.extracted[extractor.name] = result
+                            except Exception as exc:
+                                logger.warning(f"Extractor '{extractor.name}' failed for {url}: {exc}")
+                                artifact.add_error(CrawlError.extractor(extractor.name, str(exc)))
+                                if self.event_log is not None:
+                                    self.event_log.extractor_error(url, extractor.name, str(exc))
+
                         # Cache the response if cache is enabled
                         if self.page_cache:
                             self.page_cache.set(
@@ -596,12 +850,38 @@ class AsyncCrawler:
                                 dict(response.headers),
                                 html_content
                             )
+
+                    elif content_type_base == 'application/pdf' and self.enable_pdf_extraction:
+                        # --- PDF content-type routing ---
+                        try:
+                            from ..extractors.pdf_extractor import PDFExtractor, is_pdf_available
+                            if is_pdf_available():
+                                pdf_bytes = await response.read()
+                                pdf_extractor = PDFExtractor()
+                                pdf_result = pdf_extractor.extract_from_bytes(pdf_bytes)
+                                self.results[url]['pdf_data'] = pdf_result
+                                artifact.extracted['pdf'] = pdf_result
+                                artifact.content = ContentInfo(
+                                    raw_html=pdf_bytes.decode('latin-1', errors='replace'),
+                                    size_bytes=len(pdf_bytes),
+                                )
+                                artifact.downloads.append(DownloadRecord(
+                                    url=url,
+                                    bytes_downloaded=len(pdf_bytes),
+                                    content_type='application/pdf',
+                                    parse_status='success' if pdf_result else 'empty',
+                                ))
+                                logger.debug(f"PDF extracted from {url}")
+                        except Exception as e:
+                            logger.warning(f"PDF extraction failed for {url}: {e}")
+                            artifact.add_error(CrawlError.pdf(str(e)))
                     else:
                         logger.debug(f"Skipping content extraction for non-HTML content type: {content_type} at {url}")
-                    
+
                     # Store the links in the results (even if empty for non-HTML content)
+                    artifact.links = links
                     self.results[url]['links'] = links
-                    
+
                     # Record progress for successful URL
                     if self.progress_tracker:
                         images_count = len(self.results[url].get('images', []))
@@ -618,7 +898,23 @@ class AsyncCrawler:
                                 'tables': tables_count
                             }
                         )
-                    
+
+                    # --- Incremental: record ETag/Last-Modified for next run ---
+                    if self.incremental:
+                        try:
+                            self.incremental.record_response(
+                                url,
+                                status_code,
+                                etag=artifact.http.etag,
+                                last_modified=artifact.http.last_modified,
+                                content=artifact.content.raw_html,
+                            )
+                        except Exception as _e:
+                            logger.debug(f"Incremental record failed for {url}: {_e}")
+
+                    # Run pipeline stages on the completed artifact
+                    await self._run_pipelines(artifact)
+
                     # Add new links to the queue (will be empty for non-HTML content)
                     for link in links:
                         if await self._should_crawl(link):
@@ -626,9 +922,12 @@ class AsyncCrawler:
                             if self.max_queue_size and self.queue.qsize() >= self.max_queue_size:
                                 logger.warning(f"Queue size limit ({self.max_queue_size}) reached, skipping URL: {link}")
                                 continue
+                            self._discovered_from[link] = url
+                            self._discovery_method[link] = "link"
                             await self.queue.put((link, depth + 1))
                 except Exception as e:
                     logger.error(f"Error processing {url}: {e}")
+                    artifact.add_error(CrawlError(code="UNKNOWN", message=str(e), source="engine"))
                     self.results[url]['error'] = str(e)
                     # Record progress for failed URL
                     if self.progress_tracker:
@@ -641,7 +940,11 @@ class AsyncCrawler:
             else:
                 # Store the error information
                 logger.error(f"Failed to fetch {url}: {response_or_error}")
-                self.results[url]['error'] = response_or_error
+                err_msg = str(response_or_error)
+                artifact.add_error(CrawlError.fetch(err_msg, http_status=status_code))
+                if self.event_log is not None:
+                    self.event_log.fetch_error(url, err_msg, status_code=status_code)
+                self.results[url]['error'] = err_msg
                 # Record progress for failed URL
                 if self.progress_tracker:
                     self.progress_tracker.record_url(
@@ -650,6 +953,9 @@ class AsyncCrawler:
                         links_found=0,
                         depth=depth
                     )
+
+            # Store artifact (always, even on failure)
+            self.artifacts[url] = artifact
     
     async def _should_crawl(self, url):
         """Determine if a URL should be crawled based on settings"""
@@ -683,19 +989,64 @@ class AsyncCrawler:
             can_fetch = await self.robots_handler.can_fetch(url, self.user_agent)
             if not can_fetch:
                 logger.debug(f"Skipping URL disallowed by robots.txt: {url}")
+                if self.event_log is not None:
+                    self.event_log.robots_reject(url, user_agent=self.user_agent)
                 return False
-        
+
         # Check URL filter if provided
         if self.url_filter and not self.url_filter.is_allowed(url):
             logger.debug(f"Skipping URL blocked by URLFilter: {url}")
             return False
-        
+
         return True
     
+    async def _run_pipelines(self, artifact: PageArtifact) -> None:
+        """Run all registered pipeline stages on *artifact*.
+
+        Each stage receives a :meth:`~PageArtifact.copy` of the current artifact
+        so that a failing stage cannot corrupt the state seen by later stages.
+        Supports both sync and async pipeline ``process`` methods.
+
+        Pipeline contract
+        ----------------
+        * Return the (modified) artifact to pass it to the next stage.
+        * Return ``None`` to *drop* the artifact — it will not be stored in
+          ``self.artifacts`` and will not reach subsequent pipeline stages.
+        """
+        current: Optional[PageArtifact] = artifact
+        for pipeline in self.pipelines:
+            if current is None:
+                break
+            pipeline_name = type(pipeline).__name__
+            snapshot = current.copy()  # snapshot before each stage
+            try:
+                if inspect.iscoroutinefunction(pipeline.process):
+                    result = await pipeline.process(current)
+                else:
+                    result = pipeline.process(current)
+                if result is None:
+                    if self.event_log is not None:
+                        self.event_log.pipeline_drop(artifact.url, pipeline_name)
+                current = result
+            except Exception as exc:
+                logger.warning(
+                    f"Pipeline '{pipeline_name}' failed for {artifact.url}: {exc}"
+                )
+                if self.event_log is not None:
+                    self.event_log.pipeline_error(artifact.url, pipeline_name, str(exc))
+                current = snapshot  # restore pre-failure state
+        if current is not None:
+            self.artifacts[artifact.url] = current
+        # else: artifact was deliberately dropped by a pipeline stage
+
     def get_results(self):
-        """Return the detailed crawl results"""
+        """Return the detailed crawl results (legacy dict format)."""
         return self.results
-    
+
+    def get_artifacts(self) -> Dict[str, PageArtifact]:
+        """Return crawl results as :class:`~crawlit.models.PageArtifact` objects."""
+        return self.artifacts
+
     def get_skipped_external_urls(self):
         """Return the list of skipped external URLs"""
         return list(self.skipped_external_urls)

@@ -11,6 +11,7 @@ from .forms import FormExtractor, Form, FormField, extract_forms
 from .structured_data import StructuredDataExtractor, StructuredData, extract_structured_data
 from .language import LanguageDetector, LanguageDetection, detect_language
 from .pdf_extractor import PDFExtractor, extract_pdf_text, is_pdf_available
+from .js_embedded_data import JSEmbeddedDataExtractor, extract_js_embedded_data
 
 __all__ = [
     # Tables
@@ -48,4 +49,8 @@ __all__ = [
     'PDFExtractor',
     'extract_pdf_text',
     'is_pdf_available',
+
+    # JS Embedded Data Extraction
+    'JSEmbeddedDataExtractor',
+    'extract_js_embedded_data',
 ]

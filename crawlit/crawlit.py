@@ -365,7 +365,7 @@ def main():
             
             storage_manager = StorageManager(
                 store_html_content=not args.no_store_html,
-                use_disk_storage=True,
+                enable_disk_storage=True,
                 storage_dir=args.storage_dir
             )
             logger.info(f"Disk storage enabled: {args.storage_dir}")

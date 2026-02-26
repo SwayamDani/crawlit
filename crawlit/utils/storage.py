@@ -22,7 +22,9 @@ class StorageManager:
         self,
         store_html_content: bool = True,
         storage_dir: Optional[str] = None,
-        enable_disk_storage: bool = False
+        enable_disk_storage: bool = False,
+        # Backwards-compatible alias: use_disk_storage → enable_disk_storage
+        use_disk_storage: Optional[bool] = None
     ):
         """
         Initialize the storage manager.
@@ -32,6 +34,9 @@ class StorageManager:
             storage_dir: Directory for disk-based storage (if enable_disk_storage is True)
             enable_disk_storage: Whether to store HTML content on disk instead of memory
         """
+        # Resolve alias: use_disk_storage takes precedence if explicitly set
+        if use_disk_storage is not None:
+            enable_disk_storage = use_disk_storage
         self.store_html_content = store_html_content
         self.enable_disk_storage = enable_disk_storage
         self.storage_dir = Path(storage_dir) if storage_dir else None
