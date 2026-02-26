@@ -62,6 +62,7 @@ async def fetch_page_async(
     proxy_manager: Optional[Any] = None,
     max_response_bytes: Optional[int] = None,
     extra_headers: Optional[Dict[str, str]] = None,
+    on_retry: Optional[Any] = None,
 ):
     """
     Asynchronously fetch a web page with retries and proper error handling
@@ -215,6 +216,11 @@ async def fetch_page_async(
                     else:
                         backoff_time = min(2 ** retries, 32)
                     logger.warning(f"HTTP 429 for {url}, retrying in {backoff_time}s (attempt {retries}/{max_retries})")
+                    if on_retry is not None:
+                        try:
+                            on_retry(url, retries, "HTTP 429 Too Many Requests", 429)
+                        except Exception:
+                            pass
                     await asyncio.sleep(backoff_time)
 
                 elif 500 <= response.status < 600:
@@ -225,6 +231,11 @@ async def fetch_page_async(
                         return False, f"HTTP Error: {response.status}", status_code
                     backoff_time = min(2 ** retries, 32)
                     logger.debug(f"Waiting {backoff_time}s before retry (exponential backoff)")
+                    if on_retry is not None:
+                        try:
+                            on_retry(url, retries, f"HTTP {response.status} Server Error", response.status)
+                        except Exception:
+                            pass
                     await asyncio.sleep(backoff_time)
                 else:
                     logger.warning(f"HTTP Error {response.status} for {url}")
@@ -261,10 +272,15 @@ async def fetch_page_async(
             retries += 1
             if retries > max_retries:
                 return False, error_message, status_code or 429
-            
+
             # Exponential backoff before retry (only for exceptions)
             backoff_time = min(2 ** retries, 32)  # Cap at 32 seconds
             logger.debug(f"Waiting {backoff_time}s before retry (exponential backoff)")
+            if on_retry is not None:
+                try:
+                    on_retry(url, retries, error_message, status_code)
+                except Exception:
+                    pass
             await asyncio.sleep(backoff_time)
 
       # If we've exhausted all retries

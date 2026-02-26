@@ -70,12 +70,16 @@ class ArtifactStore(Pipeline):
     EDGES_LOG     = "edges.jsonl"
     BLOBS_DIR     = "blobs"
 
+    #: ``events.jsonl`` is part of the layout contract.
+    EVENTS_LOG = "events.jsonl"
+
     def __init__(
         self,
         store_dir: "str | Path",
         job: Optional[CrawlJob] = None,
         write_blobs: bool = True,
         write_edges: bool = True,
+        write_events: bool = True,
     ) -> None:
         self._root = Path(store_dir)
         self._root.mkdir(parents=True, exist_ok=True)
@@ -95,6 +99,15 @@ class ArtifactStore(Pipeline):
             if write_edges
             else None
         )
+
+        # Auto-create a CrawlEventLog bound to this store directory
+        self.event_log: Optional[Any] = None
+        if write_events:
+            from ..utils.event_log import CrawlEventLog
+            self.event_log = CrawlEventLog(
+                path=self._root / self.EVENTS_LOG,
+                run_id=job.run_id if job else None,
+            )
 
         if job is not None:
             self.write_run_manifest(job)
@@ -137,6 +150,7 @@ class ArtifactStore(Pipeline):
             "artifacts": self.ARTIFACTS_LOG,
             "blobs": self.BLOBS_DIR if self._write_blobs else None,
             "edges": self.EDGES_LOG if self._write_edges else None,
+            "events": self.EVENTS_LOG if self.event_log is not None else None,
         }
         manifest_path = self._root / self.RUN_MANIFEST
         with self._lock:
@@ -211,6 +225,11 @@ class ArtifactStore(Pipeline):
                 self._artifacts_fh.close()
             if self._edges_fh and not self._edges_fh.closed:
                 self._edges_fh.close()
+        if self.event_log is not None:
+            try:
+                self.event_log.close()
+            except Exception:
+                pass
 
     def __del__(self) -> None:
         try:

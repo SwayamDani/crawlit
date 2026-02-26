@@ -117,6 +117,8 @@ class Crawler:
         incremental: Optional[Any] = None,
         # --- Crawl job metadata ---
         run_id: Optional[str] = None,
+        # --- Operational event log ---
+        event_log: Optional[Any] = None,
     ) -> None:
         """Initialize the crawler with given parameters.
         
@@ -406,6 +408,13 @@ class Crawler:
             seed_urls=[self.start_url],
         )
 
+        # --- Event log ---
+        from ..utils.event_log import CrawlEventLog
+        self.event_log: Optional[CrawlEventLog] = event_log  # type: ignore[assignment]
+        if self.event_log is not None:
+            self.event_log.set_run_id(self.job.run_id)
+            logger.info("Event log enabled")
+
         if self.extractors:
             logger.info(f"Registered extractors: {[e.name for e in self.extractors]}")
         if self.pipelines:
@@ -546,6 +555,14 @@ class Crawler:
         """Start the crawling process"""
         self.job.started_at = datetime.now(timezone.utc)
 
+        # Emit CRAWL_START event
+        if self.event_log is not None:
+            self.event_log.crawl_start(
+                seed_urls=self.job.seed_urls,
+                max_depth=self.max_depth,
+                run_id=self.job.run_id,
+            )
+
         # Start progress tracker if provided
         if self.progress_tracker:
             self.progress_tracker.start()
@@ -587,7 +604,11 @@ class Crawler:
         # Finish progress tracking
         if self.progress_tracker:
             self.progress_tracker.finish()
-    
+
+        # Emit CRAWL_END event
+        if self.event_log is not None:
+            self.event_log.crawl_end(pages_crawled=len(self.visited_urls))
+
     def _crawl_single_threaded(self, session) -> None:
         """Single-threaded crawling (original implementation)"""
         while self.queue:
@@ -800,6 +821,9 @@ class Crawler:
             proxy=self.proxy,
             proxy_manager=self.proxy_manager,
             extra_headers=incremental_headers if incremental_headers else None,
+            on_retry=(
+                self.event_log.fetch_retry if self.event_log is not None else None
+            ),
         )
         _elapsed_ms = (time.perf_counter() - _t0) * 1000
 
@@ -808,6 +832,8 @@ class Crawler:
             logger.debug(f"304 Not Modified for {url} — skipping reprocessing")
             artifact.http = HTTPInfo(status=304, content_type=None)
             artifact.add_error(CrawlError.not_modified())
+            if self.event_log is not None:
+                self.event_log.incremental_hit(url)
             with self._results_lock:
                 self.results[url]['status'] = 304
                 self.artifacts[url] = artifact
@@ -894,6 +920,10 @@ class Crawler:
                         if self.content_deduplicator.is_duplicate(html_content, url):
                             logger.info(f"Skipping duplicate content at {url}")
                             duplicate_urls = self.content_deduplicator.get_duplicate_urls(url)
+                            if self.event_log is not None:
+                                import hashlib as _hl
+                                _h = _hl.sha256(html_content.encode("utf-8", errors="replace")).hexdigest()[:16]
+                                self.event_log.dedupe_hit(url, content_hash=_h)
                             with self._results_lock:
                                 self.results[url]['duplicate'] = True
                                 if duplicate_urls:
@@ -992,6 +1022,8 @@ class Crawler:
                         except Exception as exc:
                             logger.warning(f"Extractor '{extractor.name}' failed for {url}: {exc}")
                             artifact.add_error(CrawlError.extractor(extractor.name, str(exc)))
+                            if self.event_log is not None:
+                                self.event_log.extractor_error(url, extractor.name, str(exc))
 
                     # Cache the response if cache is enabled
                     if self.page_cache:
@@ -1102,6 +1134,8 @@ class Crawler:
             logger.error(f"Failed to fetch {url}: {response_or_error}")
             err_msg = str(response_or_error)
             artifact.add_error(CrawlError.fetch(err_msg, http_status=status_code))
+            if self.event_log is not None:
+                self.event_log.fetch_error(url, err_msg, status_code=status_code)
             with self._results_lock:
                 self.results[url]['error'] = err_msg
             # Record progress for failed URL
@@ -1148,15 +1182,17 @@ class Crawler:
         if self.respect_robots and self.robots_handler:
             if not self.robots_handler.can_fetch(url, self.user_agent):
                 logger.debug(f"Skipping URL disallowed by robots.txt: {url}")
+                if self.event_log is not None:
+                    self.event_log.robots_reject(url, user_agent=self.user_agent)
                 return False
-        
+
         # Check URL filter if provided
         if self.url_filter and not self.url_filter.is_allowed(url):
             logger.debug(f"Skipping URL blocked by URLFilter: {url}")
             return False
-        
+
         return True
-        
+
     def _run_pipelines(self, artifact: PageArtifact) -> None:
         """Run all registered pipeline stages on *artifact* (thread-safe).
 
@@ -1174,13 +1210,20 @@ class Crawler:
         for pipeline in self.pipelines:
             if current is None:
                 break
+            pipeline_name = type(pipeline).__name__
             snapshot = current.copy()  # snapshot before each stage
             try:
-                current = pipeline.process(current)
+                result = pipeline.process(current)
+                if result is None:
+                    if self.event_log is not None:
+                        self.event_log.pipeline_drop(artifact.url, pipeline_name)
+                current = result
             except Exception as exc:
                 logger.warning(
-                    f"Pipeline '{type(pipeline).__name__}' failed for {artifact.url}: {exc}"
+                    f"Pipeline '{pipeline_name}' failed for {artifact.url}: {exc}"
                 )
+                if self.event_log is not None:
+                    self.event_log.pipeline_error(artifact.url, pipeline_name, str(exc))
                 current = snapshot  # restore pre-failure state
         with self._results_lock:
             if current is not None:

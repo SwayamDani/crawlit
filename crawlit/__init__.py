@@ -42,6 +42,19 @@ from crawlit.pipelines import JSONLWriter, BlobStore, EdgesWriter, ArtifactStore
 # Export cross-run deduplication store (v1.2+)
 from crawlit.utils.content_hash_store import ContentHashStore
 
+# Export operational event log (v1.3+)
+from crawlit.utils.event_log import (
+    CrawlEventLog,
+    EVENT_TYPES,
+    CRAWL_START, CRAWL_END,
+    FETCH_RETRY, FETCH_ERROR,
+    ROBOTS_REJECT,
+    PIPELINE_DROP, PIPELINE_ERROR,
+    EXTRACTOR_ERROR,
+    INCREMENTAL_HIT,
+    DEDUPE_HIT,
+)
+
 # Export core functionality
 from crawlit.crawler.engine import Crawler
 from crawlit.crawler.async_engine import AsyncCrawler
@@ -230,6 +243,16 @@ __all__ = [
     'ArtifactStore',
     # Cross-run deduplication (v1.2+)
     'ContentHashStore',
+    # Operational event log (v1.3+)
+    'CrawlEventLog',
+    'EVENT_TYPES',
+    'CRAWL_START', 'CRAWL_END',
+    'FETCH_RETRY', 'FETCH_ERROR',
+    'ROBOTS_REJECT',
+    'PIPELINE_DROP', 'PIPELINE_ERROR',
+    'EXTRACTOR_ERROR',
+    'INCREMENTAL_HIT',
+    'DEDUPE_HIT',
     # Core
     'Crawler',           # Main crawler engine
     'AsyncCrawler',      # Async crawler engine
