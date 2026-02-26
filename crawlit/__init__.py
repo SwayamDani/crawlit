@@ -7,6 +7,25 @@ A flexible web crawler library that can be used programmatically or via CLI.
 
 __version__ = '1.0.0'
 
+# Export stable data models (v1.1+)
+from crawlit.models import (
+    PageArtifact,
+    HTTPInfo,
+    ContentInfo,
+    DownloadRecord,
+    CrawlMeta,
+    SCHEMA_VERSION,
+)
+
+# Export composable config (v1.1+)
+from crawlit.config import CrawlerConfig, FetchConfig, RateLimitConfig, OutputConfig
+
+# Export plugin interfaces (v1.1+)
+from crawlit.interfaces import Extractor, AsyncExtractor, Pipeline, AsyncPipeline
+
+# Export built-in pipelines (v1.1+)
+from crawlit.pipelines import JSONLWriter, BlobStore, EdgesWriter
+
 # Export core functionality
 from crawlit.crawler.engine import Crawler
 from crawlit.crawler.async_engine import AsyncCrawler
@@ -24,6 +43,7 @@ from crawlit.extractors.forms import FormExtractor, Form, FormField, extract_for
 from crawlit.extractors.structured_data import StructuredDataExtractor, StructuredData, extract_structured_data
 from crawlit.extractors.language import LanguageDetector, LanguageDetection, detect_language
 from crawlit.extractors.pdf_extractor import PDFExtractor, extract_pdf_text, is_pdf_available
+from crawlit.extractors.js_embedded_data import JSEmbeddedDataExtractor, extract_js_embedded_data
 
 # Export compatibility utilities
 from crawlit.compat import ensure_response_compatibility, is_async_context
@@ -157,6 +177,28 @@ def cli_main():
 
 __all__ = [
     '__version__',
+    # Stable data models (v1.1+)
+    'SCHEMA_VERSION',
+    'PageArtifact',
+    'HTTPInfo',
+    'ContentInfo',
+    'DownloadRecord',
+    'CrawlMeta',
+    # Composable config (v1.1+)
+    'CrawlerConfig',
+    'FetchConfig',
+    'RateLimitConfig',
+    'OutputConfig',
+    # Plugin interfaces (v1.1+)
+    'Extractor',
+    'AsyncExtractor',
+    'Pipeline',
+    'AsyncPipeline',
+    # Built-in pipelines (v1.1+)
+    'JSONLWriter',
+    'BlobStore',
+    'EdgesWriter',
+    # Core
     'Crawler',           # Main crawler engine
     'AsyncCrawler',      # Async crawler engine
     'fetch_url',         # Fetch URL (sync)
@@ -190,7 +232,9 @@ __all__ = [
     'PDFExtractor',      # PDF text extraction (NEW)
     'extract_pdf_text',  # Convenience function
     'is_pdf_available',  # Check PDF support
-    
+    'JSEmbeddedDataExtractor',  # JS embedded data extraction (v1.1+)
+    'extract_js_embedded_data', # Convenience function
+
     # Utility modules
     'SessionManager',    # Session management
     'URLFilter',         # URL filtering

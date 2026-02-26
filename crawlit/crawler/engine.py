@@ -9,6 +9,7 @@ import time
 import threading
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from typing import Dict, Set, List, Any, Optional, Tuple
 from urllib.parse import urlparse, urljoin
 
@@ -37,6 +38,7 @@ from ..utils.sitemap import SitemapParser, get_sitemaps_from_robots
 from ..utils.rate_limiter import RateLimiter
 from ..utils.deduplication import ContentDeduplicator
 from ..utils.budget_tracker import BudgetTracker
+from ..models.page_artifact import PageArtifact, HTTPInfo, ContentInfo, CrawlMeta, DownloadRecord
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +100,14 @@ class Crawler:
         js_browser_type: str = "chromium",
         proxy: Optional[str] = None,
         proxy_manager: Optional['ProxyManager'] = None,
-        budget_tracker: Optional[BudgetTracker] = None
+        budget_tracker: Optional[BudgetTracker] = None,
+        # --- Plugin extension points ---
+        extractors: Optional[List[Any]] = None,
+        pipelines: Optional[List[Any]] = None,
+        enable_pdf_extraction: bool = False,
+        enable_js_embedded_data: bool = False,
+        # --- Composable config (overrides individual kwargs when supplied) ---
+        config: Optional[Any] = None,
     ) -> None:
         """Initialize the crawler with given parameters.
         
@@ -333,6 +342,103 @@ class Crawler:
                     logger.info(f"Additional wait timeout: {js_wait_for_timeout}ms")
                 # Note: JS renderer will be created per request to avoid threading issues
 
+        # --- Apply CrawlerConfig overrides (config= takes precedence) ---
+        if config is not None:
+            self._apply_config(config)
+
+        # --- Plugin extension points ---
+        self.extractors: List[Any] = list(extractors or [])
+        self.pipelines: List[Any] = list(pipelines or [])
+        self.enable_pdf_extraction: bool = enable_pdf_extraction
+        self.enable_js_embedded_data: bool = enable_js_embedded_data
+
+        # Auto-register JSEmbeddedDataExtractor when flag is set and not already present
+        if self.enable_js_embedded_data:
+            from ..extractors.js_embedded_data import JSEmbeddedDataExtractor
+            if not any(isinstance(e, JSEmbeddedDataExtractor) for e in self.extractors):
+                self.extractors.append(JSEmbeddedDataExtractor())
+                logger.info("JS embedded data extraction enabled")
+
+        # Artifact store: url → PageArtifact
+        self.artifacts: Dict[str, PageArtifact] = {}
+
+        # Discovery metadata: populated before enqueuing, consumed during processing
+        self._discovered_from: Dict[str, str] = {}
+        self._discovery_method: Dict[str, str] = {}
+        self._discovery_lock: threading.Lock = threading.Lock()
+
+        if self.extractors:
+            logger.info(f"Registered extractors: {[e.name for e in self.extractors]}")
+        if self.pipelines:
+            logger.info(f"Registered pipelines: {[type(p).__name__ for p in self.pipelines]}")
+
+    def _apply_config(self, config: Any) -> None:
+        """Apply CrawlerConfig fields to override current instance settings."""
+        if getattr(config, "start_url", None):
+            self.start_url = config.start_url
+        for attr in (
+            "max_depth", "internal_only", "same_path_only", "respect_robots",
+            "max_queue_size",
+        ):
+            if hasattr(config, attr):
+                setattr(self, attr, getattr(config, attr))
+        if hasattr(config, "max_workers") and config.max_workers:
+            self.max_workers = config.max_workers
+
+        fetch = getattr(config, "fetch", None)
+        if fetch:
+            for attr in ("user_agent", "max_retries", "timeout", "proxy",
+                         "use_js_rendering", "js_wait_for_selector",
+                         "js_wait_for_timeout", "js_browser_type"):
+                if hasattr(fetch, attr):
+                    setattr(self, attr, getattr(fetch, attr))
+
+        rl = getattr(config, "rate_limit", None)
+        if rl:
+            if hasattr(rl, "delay"):
+                self.delay = rl.delay
+            if hasattr(rl, "use_per_domain_delay"):
+                self.use_per_domain_delay = rl.use_per_domain_delay
+
+        out = getattr(config, "output", None)
+        if out:
+            if getattr(out, "write_jsonl", False) and getattr(out, "jsonl_path", None):
+                from ..pipelines.jsonl_writer import JSONLWriter
+                self.pipelines.append(JSONLWriter(out.jsonl_path))
+                logger.info(f"Auto-registered JSONLWriter → {out.jsonl_path}")
+            if getattr(out, "write_blobs", False) and getattr(out, "blobs_dir", None):
+                from ..pipelines.blob_store import BlobStore
+                self.pipelines.append(BlobStore(out.blobs_dir))
+                logger.info(f"Auto-registered BlobStore → {out.blobs_dir}")
+            if getattr(out, "write_edges", False) and getattr(out, "edges_path", None):
+                from ..pipelines.edges_writer import EdgesWriter
+                self.pipelines.append(EdgesWriter(out.edges_path))
+                logger.info(f"Auto-registered EdgesWriter → {out.edges_path}")
+
+        for flag in (
+            "enable_image_extraction", "enable_keyword_extraction",
+            "enable_table_extraction", "enable_content_extraction",
+            "enable_content_deduplication", "enable_pdf_extraction",
+            "enable_js_embedded_data",
+        ):
+            if hasattr(config, flag):
+                setattr(self, flag.replace("enable_", "") + "_enabled"
+                        if flag.endswith("_extraction") or flag.endswith("_deduplication")
+                        else flag, getattr(config, flag))
+        # Resolve compound flag names to instance attrs
+        if hasattr(config, "enable_image_extraction"):
+            self.image_extraction_enabled = config.enable_image_extraction
+        if hasattr(config, "enable_keyword_extraction"):
+            self.keyword_extraction_enabled = config.enable_keyword_extraction
+        if hasattr(config, "enable_table_extraction"):
+            self.table_extraction_enabled = config.enable_table_extraction
+        if hasattr(config, "enable_content_extraction"):
+            self.content_extraction_enabled = config.enable_content_extraction
+        if hasattr(config, "enable_pdf_extraction"):
+            self.enable_pdf_extraction = config.enable_pdf_extraction
+        if hasattr(config, "enable_js_embedded_data"):
+            self.enable_js_embedded_data = config.enable_js_embedded_data
+
     def _extract_base_domain(self, url: str) -> str:
         """Extract the base domain from a URL"""
         parsed_url = urlparse(url)
@@ -381,6 +487,9 @@ class Crawler:
                         if self.max_queue_size and len(self.queue) >= self.max_queue_size:
                             logger.warning(f"Queue size limit ({self.max_queue_size}) reached while adding sitemap URLs")
                             break
+                        with self._discovery_lock:
+                            self._discovered_from[url] = sitemap_url
+                            self._discovery_method[url] = "sitemap"
                         self.queue.append((url, 0))  # Sitemap URLs start at depth 0
                         urls_added += 1
                 if urls_added > 0:
@@ -557,7 +666,23 @@ class Crawler:
                     self._last_request_time = time.time()
         
         logger.info(f"Crawling: {url} (depth: {depth})")
-        
+
+        # Retrieve discovery context recorded when this URL was enqueued
+        with self._discovery_lock:
+            discovered_from = self._discovered_from.pop(url, None)
+            discovery_method = self._discovery_method.pop(url, "seed" if depth == 0 else "link")
+
+        # Build the PageArtifact early so extractors/pipelines always receive one
+        artifact = PageArtifact(
+            url=url,
+            fetched_at=datetime.now(timezone.utc),
+            crawl=CrawlMeta(
+                depth=depth,
+                discovered_from=discovered_from,
+                discovery_method=discovery_method,
+            ),
+        )
+
         # Initialize result data for this URL (thread-safe)
         with self._results_lock:
             self.results[url] = {
@@ -652,16 +777,28 @@ class Crawler:
                 if bytes_downloaded > 0:
                     self.budget_tracker.record_page(bytes_downloaded)
             
+            # Populate artifact HTTP info
+            artifact.http = HTTPInfo(
+                status=status_code,
+                headers=headers,
+                content_type=content_type,
+                etag=headers.get("ETag") or headers.get("etag"),
+                last_modified=headers.get("Last-Modified") or headers.get("last-modified"),
+                cache_control=headers.get("Cache-Control") or headers.get("cache-control"),
+            )
+
             # Cache will be updated after HTML content is processed
-            
+
             try:
                 # Initialize links list for all URLs
                 links = []
-                
+
+                content_type_base = content_type.split(';')[0].strip().lower()
+
                 # Process the page to extract links if it's HTML
-                if content_type.split(';')[0].strip().lower() == 'text/html':
+                if content_type_base == 'text/html':
                     html_content = response.text
-                    
+
                     # Check for duplicate content
                     if self.content_deduplicator.enabled:
                         if self.content_deduplicator.is_duplicate(html_content, url):
@@ -671,7 +808,7 @@ class Crawler:
                                 self.results[url]['duplicate'] = True
                                 if duplicate_urls:
                                     self.results[url]['duplicate_of'] = list(duplicate_urls)
-                            
+
                             # Still record progress but mark as duplicate
                             if self.progress_tracker:
                                 self.progress_tracker.record_url(
@@ -682,17 +819,20 @@ class Crawler:
                                     metadata={'duplicate': True}
                                 )
                             return  # Skip processing duplicate content
-                    
+
                     # Store HTML content using storage manager
                     stored_html = self.storage_manager.store_html(url, html_content)
                     if stored_html is not None:
                         with self._results_lock:
                             self.results[url]['html_content'] = stored_html
-                    
+
+                    # Populate artifact content
+                    artifact.content = ContentInfo(raw_html=html_content)
+
                     # Use ContentExtractor to extract all page metadata if enabled
                     if self.content_extraction_enabled and self.content_extractor:
                         content_data = self.content_extractor.extract_content(html_content, url, response)
-                        
+
                         # Merge content extractor results with page results
                         with self._results_lock:
                             self.results[url].update({
@@ -706,19 +846,27 @@ class Crawler:
                                 'page_type': content_data.get('page_type'),
                                 'last_modified': content_data.get('last_modified')
                             })
+                        # Mirror into artifact
+                        for key in ('title', 'meta_description', 'meta_keywords',
+                                    'canonical_url', 'language', 'headings',
+                                    'images_with_context', 'page_type', 'last_modified'):
+                            val = content_data.get(key)
+                            if val is not None:
+                                artifact.extracted[key] = val
                         logger.debug(f"Extracted metadata for {url}")
-                    
+
                     # Extract links from HTML content
                     links = extract_links(html_content, url)
                     logger.debug(f"Extracted {len(links)} links from HTML content at {url}")
-                    
+
                     # Extract images from the page if extraction is enabled
                     if self.image_extraction_enabled:
                         images = self.image_extractor.extract_images(html_content)
                         with self._results_lock:
                             self.results[url]['images'] = images
+                        artifact.extracted['images'] = images
                         logger.debug(f"Extracted {len(images)} images from {url}")
-                    
+
                     # Extract keywords from the page if extraction is enabled
                     if self.keyword_extraction_enabled:
                         keywords_data = self.keyword_extractor.extract_keywords(html_content, include_scores=True)
@@ -727,20 +875,34 @@ class Crawler:
                             self.results[url]['keywords'] = keywords_data['keywords']
                             self.results[url]['keyword_scores'] = keywords_data['scores']
                             self.results[url]['keyphrases'] = keyphrases
+                        artifact.extracted['keywords'] = keywords_data['keywords']
+                        artifact.extracted['keyword_scores'] = keywords_data['scores']
+                        artifact.extracted['keyphrases'] = keyphrases
                         logger.debug(f"Extracted {len(keywords_data['keywords'])} keywords and {len(keyphrases)} keyphrases from {url}")
-                    
+
                     # Extract tables from the page if extraction is enabled
                     if self.table_extraction_enabled:
                         try:
                             tables = extract_tables(html_content, min_rows=1, min_columns=1)
                             with self._results_lock:
                                 self.results[url]['tables'] = tables
+                            artifact.extracted['tables'] = tables
                             logger.debug(f"Extracted {len(tables)} tables from {url}")
                         except Exception as e:
                             logger.error(f"Error extracting tables from {url}: {e}")
                             with self._results_lock:
                                 self.results[url]['tables'] = []
-                    
+
+                    # Run plugin extractors on the HTML
+                    for extractor in self.extractors:
+                        try:
+                            result = extractor.extract(html_content, artifact)
+                            if result is not None:
+                                artifact.extracted[extractor.name] = result
+                        except Exception as exc:
+                            logger.warning(f"Extractor '{extractor.name}' failed for {url}: {exc}")
+                            artifact.errors.append(f"extractor:{extractor.name}: {exc}")
+
                     # Cache the response if cache is enabled
                     if self.page_cache:
                         self.page_cache.set(
@@ -750,13 +912,42 @@ class Crawler:
                             headers,
                             html_content
                         )
+
+                elif content_type_base == 'application/pdf' and self.enable_pdf_extraction:
+                    # --- PDF content-type routing ---
+                    try:
+                        from ..extractors.pdf_extractor import PDFExtractor, is_pdf_available
+                        if is_pdf_available():
+                            pdf_bytes = response.content
+                            pdf_extractor = PDFExtractor()
+                            pdf_result = pdf_extractor.extract_from_bytes(pdf_bytes)
+                            with self._results_lock:
+                                self.results[url]['pdf_data'] = pdf_result
+                            artifact.extracted['pdf'] = pdf_result
+                            artifact.content = ContentInfo(
+                                raw_html=pdf_bytes.decode('latin-1', errors='replace'),
+                                size_bytes=len(pdf_bytes),
+                            )
+                            artifact.downloads.append(DownloadRecord(
+                                url=url,
+                                bytes_downloaded=len(pdf_bytes),
+                                content_type='application/pdf',
+                                parse_status='success' if pdf_result else 'empty',
+                            ))
+                            logger.debug(f"PDF extracted from {url}")
+                        else:
+                            logger.debug(f"PDF extraction skipped (no PDF library) for {url}")
+                    except Exception as e:
+                        logger.warning(f"PDF extraction failed for {url}: {e}")
+                        artifact.errors.append(f"pdf_extraction: {e}")
                 else:
                     logger.debug(f"Skipping content extraction for non-HTML content type: {content_type} at {url}")
-                
+
                 # Store the links in the results (even if empty for non-HTML content)
+                artifact.links = links
                 with self._results_lock:
                     self.results[url]['links'] = links
-                
+
                 # Record progress for successful URL
                 if self.progress_tracker:
                     with self._results_lock:
@@ -774,7 +965,10 @@ class Crawler:
                             'tables': tables_count
                         }
                     )
-                
+
+                # Run pipeline stages on the completed artifact
+                self._run_pipelines(artifact)
+
                 # Add new links to the queue (thread-safe)
                 for link in links:
                     if self._should_crawl(link):
@@ -783,9 +977,13 @@ class Crawler:
                             if self.max_queue_size and len(self.queue) >= self.max_queue_size:
                                 logger.warning(f"Queue size limit ({self.max_queue_size}) reached, skipping URL: {link}")
                                 continue
+                            with self._discovery_lock:
+                                self._discovered_from[link] = url
+                                self._discovery_method[link] = "link"
                             self.queue.append((link, depth + 1))
             except Exception as e:
                 logger.error(f"Error processing {url}: {e}")
+                artifact.errors.append(str(e))
                 with self._results_lock:
                     self.results[url]['error'] = str(e)
                 # Record progress for failed URL
@@ -799,6 +997,7 @@ class Crawler:
         else:
             # Store the error information
             logger.error(f"Failed to fetch {url}: {response_or_error}")
+            artifact.errors.append(str(response_or_error))
             with self._results_lock:
                 self.results[url]['error'] = response_or_error
             # Record progress for failed URL
@@ -809,6 +1008,10 @@ class Crawler:
                     links_found=0,
                     depth=depth
                 )
+
+        # Store artifact (always, even on failure, so callers have a record)
+        with self._results_lock:
+            self.artifacts[url] = artifact
     
     def _should_crawl(self, url: str) -> bool:
         """Determine if a URL should be crawled based on settings"""
@@ -850,10 +1053,30 @@ class Crawler:
         
         return True
         
+    def _run_pipelines(self, artifact: PageArtifact) -> None:
+        """Run all registered pipeline stages on *artifact* (thread-safe)."""
+        current = artifact
+        for pipeline in self.pipelines:
+            if current is None:
+                break
+            try:
+                current = pipeline.process(current)
+            except Exception as exc:
+                logger.warning(
+                    f"Pipeline '{type(pipeline).__name__}' failed for {artifact.url}: {exc}"
+                )
+                current = artifact  # continue with original on error
+        with self._results_lock:
+            self.artifacts[artifact.url] = current if current is not None else artifact
+
     def get_results(self) -> Dict[str, Dict[str, Any]]:
-        """Return the detailed crawl results"""
+        """Return the detailed crawl results (legacy dict format)."""
         return self.results
-        
+
+    def get_artifacts(self) -> Dict[str, PageArtifact]:
+        """Return crawl results as :class:`~crawlit.models.PageArtifact` objects."""
+        return self.artifacts
+
     def get_skipped_external_urls(self) -> List[str]:
         """Return the list of skipped external URLs"""
         return list(self.skipped_external_urls)
