@@ -1,0 +1,50 @@
+name: Lint and Type Check
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: ruff + mypy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install lint dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff mypy
+          # Install the package in editable mode so mypy can resolve imports,
+          # but skip optional heavy deps (playwright, psycopg2, etc.)
+          pip install -e ".[test]"
+
+      - name: Run ruff (linter)
+        run: |
+          ruff check crawlit/ --output-format=github
+
+      - name: Run ruff (formatter check)
+        run: |
+          ruff format crawlit/ --check
+
+      - name: Run mypy (type checker)
+        run: |
+          mypy crawlit/ \
+            --ignore-missing-imports \
+            --no-error-summary \
+            --exclude "crawlit/distributed|crawlit/storage"
+        # distributed and storage modules import optional heavy deps at module
+        # level (pika, psycopg2, pymongo) that are not installed in this job.
+        continue-on-error: true
+        # continue-on-error: type errors are informational until the codebase
+        # reaches a clean mypy baseline.  Switch to false once all errors fixed.

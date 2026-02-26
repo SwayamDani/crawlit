@@ -11,23 +11,19 @@ from bs4 import BeautifulSoup
 logger = logging.getLogger(__name__)
 
 def extract_links(
-    html_content: str, 
-    base_url: str, 
-    delay: float = 0.1
+    html_content: str,
+    base_url: str,
 ) -> List[str]:
     """
     Extract links from HTML content from various elements using BeautifulSoup
-    
+
     Args:
         html_content: The HTML content to parse
         base_url: The base URL for resolving relative links
-        delay: Delay in seconds to be polite to the server (not used here)
-        
+
     Returns:
         list: List of absolute URLs found in the HTML
     """
-    # Note: The delay parameter is not used here anymore.
-    # Delay handling is managed at the crawler engine level between HTTP requests.
     # This avoids double delays (one for fetching, one for parsing).
     
     # Convert to string if bytes

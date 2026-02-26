@@ -20,9 +20,9 @@ except ImportError:
     JavaScriptRenderer = None
 
 def fetch_page(
-    url: str, 
-    user_agent: str = "crawlit/1.0", 
-    max_retries: int = 3, 
+    url: str,
+    user_agent: str = "crawlit/1.0",
+    max_retries: int = 3,
     timeout: int = 10,
     session: Optional[requests.Session] = None,
     use_js_rendering: bool = False,
@@ -30,11 +30,12 @@ def fetch_page(
     wait_for_selector: Optional[str] = None,
     wait_for_timeout: Optional[int] = None,
     proxy: Optional[Union[str, Dict[str, str]]] = None,
-    proxy_manager: Optional[Any] = None
+    proxy_manager: Optional[Any] = None,
+    max_response_bytes: Optional[int] = None,
 ) -> Tuple[bool, Union[requests.Response, str], int]:
     """
     Fetch a web page with retries and proper error handling
-    
+
     Args:
         url: The URL to fetch
         user_agent: User agent string to use in the request
@@ -47,7 +48,10 @@ def fetch_page(
         wait_for_timeout: Additional timeout after page load (JS rendering only)
         proxy: Proxy configuration (URL string or dict with 'http'/'https' keys)
         proxy_manager: Optional ProxyManager for automatic proxy rotation
-        
+        max_response_bytes: Maximum response body size in bytes. Responses
+            larger than this limit are rejected to prevent memory exhaustion.
+            ``None`` (default) imposes no limit.
+
     Returns:
         tuple: (success, response_or_error, status_code)
     """
@@ -110,6 +114,15 @@ def fetch_page(
             
             # Check if the request was successful
             if response.status_code == 200:
+                # Enforce optional response body size limit
+                if max_response_bytes is not None:
+                    content_length = response.headers.get('Content-Length')
+                    if content_length and int(content_length) > max_response_bytes:
+                        logger.warning(
+                            f"Response for {url} exceeds size limit "
+                            f"({content_length} > {max_response_bytes} bytes), skipping"
+                        )
+                        return False, "Response too large", status_code
                 # Report success to proxy manager if using one
                 if proxy_manager and current_proxy:
                     proxy_manager.report_success(current_proxy)

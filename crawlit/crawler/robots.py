@@ -37,6 +37,7 @@ class RobotsHandler:
         self._fetch_times: dict = {}      # domain -> float (epoch seconds)
         self.cache_expiry: int = 3600     # TTL: 1 hour
         self.skipped_paths = []  # Track paths skipped due to robots.txt rules
+        self._MAX_SKIPPED = 10_000  # Cap memory used by skipped-path tracking
 
     def _cache_set(self, domain: str, parser: RobotFileParser, robots_text: Optional[str] = None) -> None:
         """Insert/update a domain in the LRU cache, evicting the oldest entry if full."""
@@ -155,9 +156,10 @@ class RobotsHandler:
         
         if not is_allowed:
             # Only log and track URLs that are explicitly disallowed by robots.txt
-            self.skipped_paths.append(url)
+            if len(self.skipped_paths) < self._MAX_SKIPPED:
+                self.skipped_paths.append(url)
             logger.info(f"Skipping {url} (disallowed by robots.txt)")
-            
+
         return is_allowed
         
     def get_skipped_paths(self):
@@ -221,6 +223,7 @@ class AsyncRobotsHandler:
         self.last_fetch_time: dict = {}  # domain -> float
         self.cache_expiry: int = 3600  # Cache robots.txt for 1 hour by default
         self.skipped_paths = []  # Track paths skipped due to robots.txt rules
+        self._MAX_SKIPPED = 10_000  # Cap memory used by skipped-path tracking
 
     def _lru_set(self, domain: str, parser: RobotFileParser, robots_text: Optional[str] = None) -> None:
         """Insert/update a domain in the LRU parser cache."""
@@ -272,7 +275,8 @@ class AsyncRobotsHandler:
                 if not can_fetch:
                     # Add URL to skipped paths if disallowed by robots.txt
                     logger.info(f"Skipping {url} (disallowed by robots.txt)")
-                    self.skipped_paths.append(url)
+                    if len(self.skipped_paths) < self._MAX_SKIPPED:
+                        self.skipped_paths.append(url)
                 return can_fetch
             
             # If we couldn't get a parser, we assume it's allowed

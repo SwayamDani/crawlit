@@ -53,11 +53,13 @@ class AsyncCrawler:
         visited_urls (set): Set of URLs already visited.
         results (dict): Dictionary containing crawl results and metadata.
     """
-    
+
+    _MAX_SKIPPED_EXTERNAL: int = 10_000
+
     def __init__(
-        self, 
-        start_url: str, 
-        max_depth: int = 3, 
+        self,
+        start_url: str,
+        max_depth: int = 3,
         internal_only: bool = True, 
         user_agent: str = "crawlit/1.0", 
         max_retries: int = 3, 
@@ -557,7 +559,7 @@ class AsyncCrawler:
                             logger.debug(f"Extracted metadata for {url}")
                         
                         # Extract links from HTML content
-                        links = extract_links(html_content, url, self.delay)
+                        links = extract_links(html_content, url)
                         logger.debug(f"Extracted {len(links)} links from HTML content at {url}")
                         
                         # Extract images from the page if extraction is enabled
@@ -662,7 +664,8 @@ class AsyncCrawler:
             
             # First check if the domain matches
             if parsed_url.netloc != self.base_domain:
-                self.skipped_external_urls.add(url)
+                if len(self.skipped_external_urls) < self._MAX_SKIPPED_EXTERNAL:
+                    self.skipped_external_urls.add(url)
                 logger.debug(f"Skipping external URL: {url} (external domain)")
                 return False
             
@@ -670,7 +673,8 @@ class AsyncCrawler:
             if self.same_path_only and not self.crawl_entire_domain:
                 # For path-specific crawling, ensure the URL path starts with the start_path
                 if not parsed_url.path.startswith(self.start_path):
-                    self.skipped_external_urls.add(url)
+                    if len(self.skipped_external_urls) < self._MAX_SKIPPED_EXTERNAL:
+                        self.skipped_external_urls.add(url)
                     logger.debug(f"Skipping external URL: {url} (not under {self.start_path})")
                     return False
         

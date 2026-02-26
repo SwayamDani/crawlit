@@ -127,18 +127,38 @@ class URLFilter:
     ) -> 'URLFilter':
         """
         Create a URLFilter from regex pattern strings.
-        
+
         Args:
             allowed_regex: Regex pattern string for allowed URLs
             blocked_regex: Regex pattern string for blocked URLs
             **kwargs: Additional arguments passed to __init__
-            
+
         Returns:
             A configured URLFilter instance
+
+        Raises:
+            ValueError: If either regex string is invalid.
+
+        Note:
+            User-supplied patterns are compiled without a timeout.  A
+            pathological expression such as ``(a+)+$`` can cause
+            catastrophic backtracking (ReDoS) on long URLs.  Keep
+            patterns simple and avoid unbounded nested quantifiers.
         """
-        allowed_patterns = [re.compile(allowed_regex)] if allowed_regex else None
-        blocked_patterns = [re.compile(blocked_regex)] if blocked_regex else None
-        
+        allowed_patterns = None
+        if allowed_regex:
+            try:
+                allowed_patterns = [re.compile(allowed_regex)]
+            except re.error as exc:
+                raise ValueError(f"Invalid allowed_regex pattern {allowed_regex!r}: {exc}") from exc
+
+        blocked_patterns = None
+        if blocked_regex:
+            try:
+                blocked_patterns = [re.compile(blocked_regex)]
+            except re.error as exc:
+                raise ValueError(f"Invalid blocked_regex pattern {blocked_regex!r}: {exc}") from exc
+
         return cls(
             allowed_patterns=allowed_patterns,
             blocked_patterns=blocked_patterns,

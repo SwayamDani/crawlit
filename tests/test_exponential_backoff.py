@@ -128,25 +128,116 @@ class TestExponentialBackoff:
     @patch('crawlit.crawler.fetcher.requests.get')
     @patch('crawlit.crawler.fetcher.time.sleep')
     def test_no_backoff_on_4xx_error(self, mock_sleep, mock_get):
-        """Test that no retry/backoff occurs on 4xx client errors"""
+        """Test that no retry/backoff occurs on non-429 4xx client errors"""
         # Create mock response with 404 error
         mock_response = Mock()
         mock_response.status_code = 404
         mock_get.return_value = mock_response
-        
+
         # Call fetch_page
         success, response, status = fetch_page(
             "http://example.com",
             max_retries=3,
             timeout=5
         )
-        
+
         # Should have failed immediately
         assert success == False
         assert status == 404
-        
-        # No retry should occur for 4xx, so no sleep
+
+        # No retry should occur for 404, so no sleep
         assert mock_sleep.call_count == 0
+
+    @patch('crawlit.crawler.fetcher.requests.get')
+    @patch('crawlit.crawler.fetcher.time.sleep')
+    def test_429_is_retried(self, mock_sleep, mock_get):
+        """HTTP 429 must be retried, unlike other 4xx responses."""
+        mock_429 = Mock()
+        mock_429.status_code = 429
+        mock_429.headers = {}
+
+        mock_success = Mock()
+        mock_success.status_code = 200
+        mock_success.headers = {}
+
+        # First call returns 429, second returns 200
+        mock_get.side_effect = [mock_429, mock_success]
+
+        success, response, status = fetch_page(
+            "http://example.com",
+            max_retries=3,
+            timeout=5,
+        )
+
+        assert success is True
+        assert status == 200
+        # sleep should have been called at least once for the 429 backoff
+        assert mock_sleep.call_count >= 1
+
+    @patch('crawlit.crawler.fetcher.requests.get')
+    @patch('crawlit.crawler.fetcher.time.sleep')
+    def test_429_respects_retry_after_header(self, mock_sleep, mock_get):
+        """Retry-After header value must be used as sleep duration for 429."""
+        mock_429 = Mock()
+        mock_429.status_code = 429
+        mock_429.headers = {'Retry-After': '30'}
+
+        mock_success = Mock()
+        mock_success.status_code = 200
+        mock_success.headers = {}
+
+        mock_get.side_effect = [mock_429, mock_success]
+
+        success, response, status = fetch_page(
+            "http://example.com",
+            max_retries=3,
+            timeout=5,
+        )
+
+        assert success is True
+        # First sleep must honour the Retry-After value of 30 seconds
+        sleep_times = [call[0][0] for call in mock_sleep.call_args_list]
+        assert sleep_times[0] == 30.0
+
+    @patch('crawlit.crawler.fetcher.requests.get')
+    @patch('crawlit.crawler.fetcher.time.sleep')
+    def test_429_exhausts_retries(self, mock_sleep, mock_get):
+        """After max_retries 429 responses, fetch_page must return failure."""
+        mock_429 = Mock()
+        mock_429.status_code = 429
+        mock_429.headers = {}
+
+        mock_get.return_value = mock_429
+
+        success, response, status = fetch_page(
+            "http://example.com",
+            max_retries=2,
+            timeout=5,
+        )
+
+        assert success is False
+        assert status == 429
+        # sleep should have been called for each retry (2 retries = 2 sleeps)
+        assert mock_sleep.call_count == 2
+
+    @patch('crawlit.crawler.fetcher.requests.get')
+    @patch('crawlit.crawler.fetcher.time.sleep')
+    def test_429_retry_after_capped_at_120(self, mock_sleep, mock_get):
+        """Retry-After values larger than 120 s must be capped at 120 s."""
+        mock_429 = Mock()
+        mock_429.status_code = 429
+        mock_429.headers = {'Retry-After': '9999'}
+
+        mock_success = Mock()
+        mock_success.status_code = 200
+        mock_success.headers = {}
+
+        mock_get.side_effect = [mock_429, mock_success]
+
+        fetch_page("http://example.com", max_retries=3, timeout=5)
+
+        sleep_times = [call[0][0] for call in mock_sleep.call_args_list]
+        assert sleep_times[0] == 120.0
 
 
 @pytest.mark.asyncio

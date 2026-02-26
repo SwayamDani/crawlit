@@ -49,9 +49,9 @@ def _detect_charset_from_bytes(raw: bytes) -> Optional[str]:
 
 
 async def fetch_page_async(
-    url: str, 
-    user_agent: str = "crawlit/1.0", 
-    max_retries: int = 3, 
+    url: str,
+    user_agent: str = "crawlit/1.0",
+    max_retries: int = 3,
     timeout: int = 10,
     session: Optional[aiohttp.ClientSession] = None,
     use_js_rendering: bool = False,
@@ -59,11 +59,12 @@ async def fetch_page_async(
     wait_for_selector: Optional[str] = None,
     wait_for_timeout: Optional[int] = None,
     proxy: Optional[str] = None,
-    proxy_manager: Optional[Any] = None
+    proxy_manager: Optional[Any] = None,
+    max_response_bytes: Optional[int] = None,
 ):
     """
     Asynchronously fetch a web page with retries and proper error handling
-    
+
     Args:
         url: The URL to fetch
         user_agent: User agent string to use in the request
@@ -76,7 +77,10 @@ async def fetch_page_async(
         wait_for_timeout: Additional timeout after page load (JS rendering only)
         proxy: Proxy URL string
         proxy_manager: Optional ProxyManager for automatic proxy rotation
-        
+        max_response_bytes: Maximum response body size in bytes. Responses
+            larger than this limit are rejected to prevent memory exhaustion.
+            ``None`` (default) imposes no limit.
+
     Returns:
         tuple: (success, response_or_error, status_code)
     """
@@ -139,6 +143,16 @@ async def fetch_page_async(
                 status_code = response.status
 
                 if response.status == 200:
+                    # Enforce optional response body size limit via Content-Length header
+                    if max_response_bytes is not None:
+                        content_length_hdr = response.headers.get('Content-Length')
+                        if content_length_hdr and int(content_length_hdr) > max_response_bytes:
+                            logger.warning(
+                                f"Response for {url} exceeds size limit "
+                                f"({content_length_hdr} > {max_response_bytes} bytes), skipping"
+                            )
+                            return False, "Response too large", status_code
+
                     content_type = response.headers.get('Content-Type', '').lower()
 
                     if 'text/' in content_type or 'html' in content_type or 'xml' in content_type or 'json' in content_type:

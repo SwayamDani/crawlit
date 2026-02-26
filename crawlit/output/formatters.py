@@ -10,6 +10,16 @@ import os
 import datetime
 from pathlib import Path
 
+_BLOCKED_SCHEMES = ('javascript:', 'data:', 'vbscript:')
+
+
+def _safe_href(url: object) -> str:
+    """Return an HTML-attribute-safe href value, blocking dangerous URL schemes."""
+    s = str(url).lstrip()
+    if s.lower().startswith(_BLOCKED_SCHEMES):
+        return '#'
+    return _html.escape(str(url))
+
 
 def create_output_file(output_path):
     """Create directory for output file if it doesn't exist.
@@ -437,8 +447,9 @@ def save_as_html(results, output_file, timestamp):
 """
             # Show all links in HTML
             for link in links:
+                safe_link_href = _safe_href(link)
                 escaped_link = _html.escape(str(link))
-                html += f'                        <li><a href="{escaped_link}" target="_blank">{escaped_link}</a></li>\n'
+                html += f'                        <li><a href="{safe_link_href}" target="_blank">{escaped_link}</a></li>\n'
 
             html += """
                     </ul>
@@ -466,6 +477,7 @@ def save_as_html(results, output_file, timestamp):
                 width = img.get('width', 'N/A')
                 height = img.get('height', 'N/A')
                 dimensions = f"{width}x{height}" if width != 'N/A' and height != 'N/A' else 'N/A'
+                safe_src_href = _safe_href(src)
                 escaped_src = _html.escape(str(src))
                 escaped_alt = _html.escape(str(alt))
                 escaped_dim = _html.escape(str(dimensions))
@@ -473,7 +485,7 @@ def save_as_html(results, output_file, timestamp):
 
                 html += f"""
                         <tr>
-                            <td style="border: 1px solid #ddd; padding: 8px;"><a href="{escaped_src}" target="_blank">{escaped_basename}</a></td>
+                            <td style="border: 1px solid #ddd; padding: 8px;"><a href="{safe_src_href}" target="_blank">{escaped_basename}</a></td>
                             <td style="border: 1px solid #ddd; padding: 8px;">{escaped_alt}</td>
                             <td style="border: 1px solid #ddd; padding: 8px;">{escaped_dim}</td>
                         </tr>

@@ -42,9 +42,15 @@ logger = logging.getLogger(__name__)
 
 class Crawler:
     """Main crawler class that manages the crawling process.
-    
+
     This class provides the core functionality for crawling web pages,
     extracting links, and following them according to the specified rules.
+
+    Class constants
+    ---------------
+    _MAX_SKIPPED_EXTERNAL : int
+        Maximum entries kept in ``skipped_external_urls`` to bound memory use
+        on large crawls.
     
     Attributes:
         start_url (str): The starting URL for the crawler.
@@ -54,15 +60,17 @@ class Crawler:
         visited_urls (set): Set of URLs already visited.
         results (dict): Dictionary containing crawl results and metadata.
     """
-    
+
+    _MAX_SKIPPED_EXTERNAL: int = 10_000
+
     def __init__(
-        self, 
-        start_url: str, 
-        max_depth: int = 3, 
-        internal_only: bool = True, 
-        user_agent: str = "crawlit/1.0", 
-        max_retries: int = 3, 
-        timeout: int = 10, 
+        self,
+        start_url: str,
+        max_depth: int = 3,
+        internal_only: bool = True,
+        user_agent: str = "crawlit/1.0",
+        max_retries: int = 3,
+        timeout: int = 10,
         delay: float = 0.1,
         respect_robots: bool = True, 
         enable_image_extraction: bool = False, 
@@ -701,7 +709,7 @@ class Crawler:
                         logger.debug(f"Extracted metadata for {url}")
                     
                     # Extract links from HTML content
-                    links = extract_links(html_content, url, self.delay)
+                    links = extract_links(html_content, url)
                     logger.debug(f"Extracted {len(links)} links from HTML content at {url}")
                     
                     # Extract images from the page if extraction is enabled
@@ -815,15 +823,17 @@ class Crawler:
             
             # First check if the domain matches
             if parsed_url.netloc != self.base_domain:
-                self.skipped_external_urls.add(url)
+                if len(self.skipped_external_urls) < self._MAX_SKIPPED_EXTERNAL:
+                    self.skipped_external_urls.add(url)
                 logger.debug(f"Skipping external URL: {url} (external domain)")
                 return False
-            
+
             # If same_path_only is True, check path restriction
             if self.same_path_only and not self.crawl_entire_domain:
                 # For path-specific crawling, ensure the URL path starts with the start_path
                 if not parsed_url.path.startswith(self.start_path):
-                    self.skipped_external_urls.add(url)
+                    if len(self.skipped_external_urls) < self._MAX_SKIPPED_EXTERNAL:
+                        self.skipped_external_urls.add(url)
                     logger.debug(f"Skipping external URL: {url} (not under {self.start_path})")
                     return False
         
@@ -872,7 +882,8 @@ class Crawler:
         if self.same_path_only and not self.crawl_entire_domain:
             if not parsed_url.path.startswith(self.start_path):
                 logger.debug(f"Skipping URL: {url} (not under path {self.start_path})")
-                self.skipped_external_urls.add(url)
+                if len(self.skipped_external_urls) < self._MAX_SKIPPED_EXTERNAL:
+                    self.skipped_external_urls.add(url)
                 return False
 
         return True
@@ -900,7 +911,8 @@ class Crawler:
             
             # Skip if not in same domain when internal_only is True
             if self.internal_only and parsed_href.netloc != self.base_domain:
-                self.skipped_external_urls.add(href)
+                if len(self.skipped_external_urls) < self._MAX_SKIPPED_EXTERNAL:
+                    self.skipped_external_urls.add(href)
                 logger.debug(f"Skipping external URL: {href} (external domain)")
                 continue
             
@@ -908,7 +920,8 @@ class Crawler:
             # check path restriction
             if self.same_path_only and not self.crawl_entire_domain:
                 if not parsed_href.path.startswith(self.start_path):
-                    self.skipped_external_urls.add(href)
+                    if len(self.skipped_external_urls) < self._MAX_SKIPPED_EXTERNAL:
+                        self.skipped_external_urls.add(href)
                     logger.debug(f"Skipping path-external URL: {href} (not under {self.start_path})")
                     continue
             
@@ -1006,7 +1019,7 @@ class Crawler:
                 logger.debug(f"Extracted metadata from cache for {url}")
             
             # Extract links from HTML content
-            links = extract_links(content, url, self.delay)
+            links = extract_links(content, url)
             logger.debug(f"Extracted {len(links)} links from cached HTML content at {url}")
             
             # Extract images from the page if extraction is enabled
