@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import dataclasses
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
     from .models.page_artifact import PageArtifact
@@ -39,6 +39,51 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Fetch abstraction
 # ---------------------------------------------------------------------------
+
+
+@dataclasses.dataclass
+class FetchRequest:
+    """
+    A single HTTP request specification.
+
+    Passed to :class:`Fetcher` / :class:`AsyncFetcher` implementations so that
+    the engine never needs to grow additional fetch-specific keyword arguments.
+
+    Attributes
+    ----------
+    url : str
+        Target URL.
+    method : str
+        HTTP method (default ``"GET"``).
+    headers : dict
+        Per-request headers merged on top of the session defaults.
+    params : dict | None
+        URL query-string parameters.
+    body : bytes | None
+        Request body for POST/PUT requests.
+    timeout : int | None
+        Request-level timeout override in seconds.  ``None`` uses the
+        session/engine default.
+    allow_js : bool
+        When ``True`` the fetcher should use JS rendering (if available).
+    cookies : dict | None
+        Per-request cookies.
+    proxy : str | None
+        Proxy URL for this specific request (overrides engine-level proxy).
+    retries : int
+        Maximum retry attempts on transient failures.
+    """
+
+    url: str
+    method: str = "GET"
+    headers: Dict[str, str] = dataclasses.field(default_factory=dict)
+    params: Optional[Dict[str, str]] = None
+    body: Optional[bytes] = None
+    timeout: Optional[int] = None
+    allow_js: bool = False
+    cookies: Optional[Dict[str, str]] = None
+    proxy: Optional[str] = None
+    retries: int = 3
 
 
 @dataclasses.dataclass
@@ -70,6 +115,10 @@ class FetchResult:
         Error description when ``success`` is ``False``.
     not_modified : bool
         ``True`` when the server returned 304 Not Modified (incremental crawl).
+    elapsed_ms : float | None
+        Total request→response time in milliseconds.
+    response_bytes : int | None
+        Number of bytes received over the wire.
     """
 
     success: bool = False
@@ -81,6 +130,8 @@ class FetchResult:
     raw_bytes: Optional[bytes] = None
     error: Optional[str] = None
     not_modified: bool = False
+    elapsed_ms: Optional[float] = None
+    response_bytes: Optional[int] = None
 
 
 class Fetcher(ABC):

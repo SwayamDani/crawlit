@@ -10,6 +10,7 @@ from .page_artifact import (
     ContentInfo,
     DownloadRecord,
     CrawlMeta,
+    ArtifactSource,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "ContentInfo",
     "DownloadRecord",
     "CrawlMeta",
+    "ArtifactSource",
 ]

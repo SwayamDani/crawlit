@@ -39,7 +39,8 @@ from ..utils.rate_limiter import RateLimiter
 from ..utils.deduplication import ContentDeduplicator
 from ..utils.budget_tracker import BudgetTracker
 from ..models.page_artifact import (
-    PageArtifact, HTTPInfo, ContentInfo, CrawlMeta, DownloadRecord, CrawlJob, CrawlError,
+    PageArtifact, HTTPInfo, ContentInfo, CrawlMeta, DownloadRecord,
+    CrawlJob, CrawlError, ArtifactSource,
 )
 
 logger = logging.getLogger(__name__)
@@ -712,10 +713,20 @@ class Crawler:
             discovered_from = self._discovered_from.pop(url, None)
             discovery_method = self._discovery_method.pop(url, "seed" if depth == 0 else "link")
 
+        # Derive source type from discovery method
+        _source_type = (
+            "seed"      if discovery_method == "seed"    else
+            "sitemap"   if discovery_method == "sitemap" else
+            "html_link" if discovery_method == "link"    else
+            "unknown"
+        )
+        _site = urlparse(url).netloc or None
+
         # Build the PageArtifact early so extractors/pipelines always receive one
         artifact = PageArtifact(
             url=url,
             fetched_at=datetime.now(timezone.utc),
+            source=ArtifactSource(type=_source_type, site=_site),
             crawl=CrawlMeta(
                 depth=depth,
                 discovered_from=discovered_from,
@@ -774,7 +785,8 @@ class Crawler:
                 self._process_cached_content(url, depth, content, headers)
             return
         
-        # Fetch the page using our fetcher with session
+        # Fetch the page using our fetcher with session (capture wall-clock time)
+        _t0 = time.perf_counter()
         success, response_or_error, status_code = fetch_page(
             url,
             self.user_agent,
@@ -789,6 +801,7 @@ class Crawler:
             proxy_manager=self.proxy_manager,
             extra_headers=incremental_headers if incremental_headers else None,
         )
+        _elapsed_ms = (time.perf_counter() - _t0) * 1000
 
         # --- Incremental: handle 304 Not Modified ---
         if status_code == 304:
@@ -842,7 +855,17 @@ class Crawler:
                 if bytes_downloaded > 0:
                     self.budget_tracker.record_page(bytes_downloaded)
             
-            # Populate artifact HTTP info
+            # Measure response size
+            _response_bytes: Optional[int] = None
+            try:
+                if hasattr(response_or_error, "content"):
+                    _response_bytes = len(response_or_error.content)
+                elif hasattr(response_or_error, "text"):
+                    _response_bytes = len(response_or_error.text.encode("utf-8", errors="replace"))
+            except Exception:
+                pass
+
+            # Populate artifact HTTP info (with timing and size metrics)
             artifact.http = HTTPInfo(
                 status=status_code,
                 headers=headers,
@@ -850,6 +873,8 @@ class Crawler:
                 etag=headers.get("ETag") or headers.get("etag"),
                 last_modified=headers.get("Last-Modified") or headers.get("last-modified"),
                 cache_control=headers.get("Cache-Control") or headers.get("cache-control"),
+                elapsed_ms=round(_elapsed_ms, 2),
+                response_bytes=_response_bytes,
             )
 
             # Cache will be updated after HTML content is processed
@@ -1137,8 +1162,15 @@ class Crawler:
 
         Each stage receives a :meth:`~PageArtifact.copy` of the current artifact
         so that a failing stage cannot corrupt the state seen by later stages.
+
+        Pipeline contract
+        ----------------
+        * Return the (modified) artifact to pass it to the next stage.
+        * Return ``None`` to *drop* the artifact — it will not be stored in
+          ``self.artifacts`` and will not reach subsequent pipeline stages.
+          Use this for filtering (e.g. robots.txt post-check, relevance gating).
         """
-        current = artifact
+        current: Optional[PageArtifact] = artifact
         for pipeline in self.pipelines:
             if current is None:
                 break
@@ -1151,7 +1183,9 @@ class Crawler:
                 )
                 current = snapshot  # restore pre-failure state
         with self._results_lock:
-            self.artifacts[artifact.url] = current if current is not None else artifact
+            if current is not None:
+                self.artifacts[artifact.url] = current
+            # else: artifact was deliberately dropped by a pipeline stage
 
     def get_results(self) -> Dict[str, Dict[str, Any]]:
         """Return the detailed crawl results (legacy dict format)."""

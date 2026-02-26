@@ -137,7 +137,7 @@ class CrawlJob:
 
 @dataclasses.dataclass
 class HTTPInfo:
-    """HTTP response metadata."""
+    """HTTP response metadata, including timing and transfer-size metrics."""
 
     status: Optional[int] = None
     headers: Dict[str, str] = dataclasses.field(default_factory=dict)
@@ -146,6 +146,11 @@ class HTTPInfo:
     etag: Optional[str] = None
     last_modified: Optional[str] = None
     cache_control: Optional[str] = None
+    # --- Timing metrics (milliseconds) ---
+    elapsed_ms: Optional[float] = None    # total request→response time
+    ttfb_ms: Optional[float] = None       # time to first byte (when measurable)
+    # --- Size metrics (bytes) ---
+    response_bytes: Optional[int] = None  # total bytes received over the wire
 
 
 @dataclasses.dataclass
@@ -185,6 +190,33 @@ class CrawlMeta:
     run_id: Optional[str] = None
 
 
+@dataclasses.dataclass
+class ArtifactSource:
+    """
+    Source provenance for a crawled artifact.
+
+    Enables multi-source ingestion pipelines to tag and route artifacts by
+    their origin.
+
+    Fields
+    ------
+    type : str
+        How the URL was discovered.  One of:
+        ``"seed"`` — directly provided as a start URL;
+        ``"sitemap"`` — discovered via sitemap.xml;
+        ``"html_link"`` — found in an HTML ``<a href>`` on another page;
+        ``"api"`` — injected programmatically via the queue API.
+        Defaults to ``"unknown"``.
+    site : str | None
+        Domain or a human-readable source name (e.g. ``"bloomberg.com"`` or
+        ``"bloomberg"`` for a configured source).  Populated automatically
+        from the crawled URL's ``netloc`` when not set explicitly.
+    """
+
+    type: str = "unknown"   # seed / sitemap / html_link / api / unknown
+    site: Optional[str] = None
+
+
 # ---------------------------------------------------------------------------
 # Top-level artifact
 # ---------------------------------------------------------------------------
@@ -204,9 +236,11 @@ class PageArtifact:
     fetched_at : datetime | None
         UTC timestamp when the page was fetched.
     http : HTTPInfo
-        HTTP response metadata (status, headers, content-type, ETags, …).
+        HTTP response metadata (status, headers, content-type, ETags, timing, …).
     content : ContentInfo
         Content storage metadata and optional inline raw HTML.
+    source : ArtifactSource
+        Provenance — how/where the URL was discovered.
     links : list[str]
         Outbound links discovered on this page.
     extracted : dict[str, Any]
@@ -226,11 +260,43 @@ class PageArtifact:
     fetched_at: Optional[datetime] = None
     http: HTTPInfo = dataclasses.field(default_factory=HTTPInfo)
     content: ContentInfo = dataclasses.field(default_factory=ContentInfo)
+    source: ArtifactSource = dataclasses.field(default_factory=ArtifactSource)
     links: List[str] = dataclasses.field(default_factory=list)
     extracted: Dict[str, Any] = dataclasses.field(default_factory=dict)
     downloads: List[DownloadRecord] = dataclasses.field(default_factory=list)
     errors: List[CrawlError] = dataclasses.field(default_factory=list)
     crawl: CrawlMeta = dataclasses.field(default_factory=CrawlMeta)
+
+    # ------------------------------------------------------------------
+    # Validation
+    # ------------------------------------------------------------------
+
+    def validate_minimal(self) -> List[str]:
+        """
+        Check that the artifact has the minimum required fields.
+
+        Returns a list of human-readable error strings.  An empty list means
+        the artifact is valid.
+
+        Minimal requirements
+        --------------------
+        * ``url`` must be non-empty and start with ``http``
+        * ``schema_version`` must equal :data:`SCHEMA_VERSION`
+        * ``fetched_at`` must be set
+        """
+        problems: List[str] = []
+        if not self.url:
+            problems.append("url is required")
+        elif not self.url.startswith(("http://", "https://")):
+            problems.append(f"url must start with http:// or https://, got: {self.url!r}")
+        if self.schema_version != SCHEMA_VERSION:
+            problems.append(
+                f"schema_version mismatch: expected {SCHEMA_VERSION!r}, "
+                f"got {self.schema_version!r}"
+            )
+        if self.fetched_at is None:
+            problems.append("fetched_at is required")
+        return problems
 
     # ------------------------------------------------------------------
     # Error helpers
@@ -260,10 +326,10 @@ class PageArtifact:
         """
         Return a shallow copy with independent mutable containers.
 
-        ``http``, ``content``, and ``crawl`` sub-objects are shared (they are
-        treated as immutable once set by the engine); ``links``, ``extracted``,
-        ``downloads``, and ``errors`` are copied so that one pipeline stage
-        cannot corrupt a later stage's view.
+        ``http``, ``content``, ``source``, and ``crawl`` sub-objects are
+        shared (they are treated as immutable once set by the engine);
+        ``links``, ``extracted``, ``downloads``, and ``errors`` are copied
+        so that one pipeline stage cannot corrupt a later stage's view.
         """
         return PageArtifact(
             schema_version=self.schema_version,
@@ -271,6 +337,7 @@ class PageArtifact:
             fetched_at=self.fetched_at,
             http=self.http,
             content=self.content,
+            source=self.source,
             links=list(self.links),
             extracted=dict(self.extracted),
             downloads=list(self.downloads),
@@ -317,8 +384,12 @@ class PageArtifact:
         This enables gradual migration: callers that still receive the old
         ``{url: {...}}`` result dict can wrap it in a PageArtifact for use
         with pipelines and extractors.
+
+        The returned artifact has ``schema_version = "legacy"`` to signal that
+        it was migrated from a pre-v1 result dict.  Use
+        :meth:`validate_minimal` to confirm which fields are present.
         """
-        artifact = cls(url=url)
+        artifact = cls(url=url, schema_version="legacy")
         artifact.http = HTTPInfo(
             status=result.get("status"),
             headers=result.get("headers") or {},
@@ -331,6 +402,10 @@ class PageArtifact:
         artifact.crawl = CrawlMeta(depth=result.get("depth", 0))
         if result.get("error"):
             artifact.add_error(str(result["error"]))
+
+        # Populate source from the URL's domain
+        from urllib.parse import urlparse as _urlparse
+        artifact.source = ArtifactSource(type="unknown", site=_urlparse(url).netloc or None)
 
         # Lift legacy extraction fields into the extracted dict
         for key in (

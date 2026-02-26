@@ -39,7 +39,8 @@ from ..utils.rate_limiter import AsyncRateLimiter
 from ..utils.deduplication import ContentDeduplicator
 from ..utils.budget_tracker import AsyncBudgetTracker
 from ..models.page_artifact import (
-    PageArtifact, HTTPInfo, ContentInfo, CrawlMeta, DownloadRecord, CrawlJob, CrawlError,
+    PageArtifact, HTTPInfo, ContentInfo, CrawlMeta, DownloadRecord,
+    CrawlJob, CrawlError, ArtifactSource,
 )
 
 logger = logging.getLogger(__name__)
@@ -564,10 +565,20 @@ class AsyncCrawler:
             discovered_from = self._discovered_from.pop(url, None)
             discovery_method = self._discovery_method.pop(url, "seed" if depth == 0 else "link")
 
+            # Derive source type + site from discovery method
+            _source_type = (
+                "seed"      if discovery_method == "seed"    else
+                "sitemap"   if discovery_method == "sitemap" else
+                "html_link" if discovery_method == "link"    else
+                "unknown"
+            )
+            _site = urlparse(url).netloc or None
+
             # Build the PageArtifact early so extractors/pipelines always receive one
             artifact = PageArtifact(
                 url=url,
                 fetched_at=datetime.now(timezone.utc),
+                source=ArtifactSource(type=_source_type, site=_site),
                 crawl=CrawlMeta(
                     depth=depth,
                     discovered_from=discovered_from,
@@ -598,7 +609,8 @@ class AsyncCrawler:
             # Get async session from session manager
             session = await self.session_manager.get_async_session()
 
-            # Fetch the page asynchronously with session
+            # Fetch the page asynchronously with session (capture wall-clock time)
+            _t0 = time.perf_counter()
             success, response_or_error, status_code = await async_fetch_page(
                 url,
                 self.user_agent,
@@ -613,6 +625,7 @@ class AsyncCrawler:
                 proxy_manager=self.proxy_manager,
                 extra_headers=incremental_headers if incremental_headers else None,
             )
+            _elapsed_ms = (time.perf_counter() - _t0) * 1000
 
             # --- Incremental: handle 304 Not Modified ---
             if status_code == 304:
@@ -661,7 +674,17 @@ class AsyncCrawler:
                     if bytes_downloaded > 0:
                         await self.budget_tracker.record_page(bytes_downloaded)
                 
-                # Populate artifact HTTP info
+                # Measure response size (best-effort for aiohttp)
+                _response_bytes: Optional[int] = None
+                try:
+                    if hasattr(response_or_error, '_body') and response_or_error._body:
+                        _response_bytes = len(response_or_error._body)
+                    elif hasattr(response_or_error, 'content_length') and response_or_error.content_length:
+                        _response_bytes = response_or_error.content_length
+                except Exception:
+                    pass
+
+                # Populate artifact HTTP info (with timing and size metrics)
                 headers_dict = dict(response.headers)
                 artifact.http = HTTPInfo(
                     status=status_code,
@@ -670,6 +693,8 @@ class AsyncCrawler:
                     etag=response.headers.get('ETag'),
                     last_modified=response.headers.get('Last-Modified'),
                     cache_control=response.headers.get('Cache-Control'),
+                    elapsed_ms=round(_elapsed_ms, 2),
+                    response_bytes=_response_bytes,
                 )
 
                 try:
@@ -945,8 +970,14 @@ class AsyncCrawler:
         Each stage receives a :meth:`~PageArtifact.copy` of the current artifact
         so that a failing stage cannot corrupt the state seen by later stages.
         Supports both sync and async pipeline ``process`` methods.
+
+        Pipeline contract
+        ----------------
+        * Return the (modified) artifact to pass it to the next stage.
+        * Return ``None`` to *drop* the artifact — it will not be stored in
+          ``self.artifacts`` and will not reach subsequent pipeline stages.
         """
-        current = artifact
+        current: Optional[PageArtifact] = artifact
         for pipeline in self.pipelines:
             if current is None:
                 break
@@ -961,7 +992,9 @@ class AsyncCrawler:
                     f"Pipeline '{type(pipeline).__name__}' failed for {artifact.url}: {exc}"
                 )
                 current = snapshot  # restore pre-failure state
-        self.artifacts[artifact.url] = current if current is not None else artifact
+        if current is not None:
+            self.artifacts[artifact.url] = current
+        # else: artifact was deliberately dropped by a pipeline stage
 
     def get_results(self):
         """Return the detailed crawl results (legacy dict format)."""

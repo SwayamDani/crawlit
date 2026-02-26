@@ -7,13 +7,14 @@ A flexible web crawler library that can be used programmatically or via CLI.
 
 __version__ = '1.0.0'
 
-# Export stable data models (v1.1+)
+# Export stable data models (v1.2+)
 from crawlit.models import (
     PageArtifact,
     HTTPInfo,
     ContentInfo,
     DownloadRecord,
     CrawlMeta,
+    ArtifactSource,
     SCHEMA_VERSION,
     ERROR_CODES,
     CrawlError,
@@ -23,14 +24,23 @@ from crawlit.models import (
 # Export composable config (v1.1+)
 from crawlit.config import CrawlerConfig, FetchConfig, RateLimitConfig, OutputConfig
 
-# Export plugin interfaces (v1.1+)
-from crawlit.interfaces import Extractor, AsyncExtractor, Pipeline, AsyncPipeline, FetchResult, Fetcher, AsyncFetcher
+# Export plugin interfaces (v1.2+)
+from crawlit.interfaces import (
+    Extractor, AsyncExtractor, Pipeline, AsyncPipeline,
+    FetchRequest, FetchResult, Fetcher, AsyncFetcher,
+)
 
 # Export default fetcher implementations (v1.1+)
 from crawlit.fetchers import DefaultFetcher, DefaultAsyncFetcher
 
-# Export built-in pipelines (v1.1+)
-from crawlit.pipelines import JSONLWriter, BlobStore, EdgesWriter
+# Export content-type router (v1.2+)
+from crawlit.content_router import ContentRouter
+
+# Export built-in pipelines (v1.2+)
+from crawlit.pipelines import JSONLWriter, BlobStore, EdgesWriter, ArtifactStore
+
+# Export cross-run deduplication store (v1.2+)
+from crawlit.utils.content_hash_store import ContentHashStore
 
 # Export core functionality
 from crawlit.crawler.engine import Crawler
@@ -183,7 +193,7 @@ def cli_main():
 
 __all__ = [
     '__version__',
-    # Stable data models (v1.1+)
+    # Stable data models (v1.2+)
     'SCHEMA_VERSION',
     'ERROR_CODES',
     'CrawlError',
@@ -193,26 +203,33 @@ __all__ = [
     'ContentInfo',
     'DownloadRecord',
     'CrawlMeta',
+    'ArtifactSource',
     # Composable config (v1.1+)
     'CrawlerConfig',
     'FetchConfig',
     'RateLimitConfig',
     'OutputConfig',
-    # Plugin interfaces (v1.1+)
+    # Plugin interfaces (v1.2+)
     'Extractor',
     'AsyncExtractor',
     'Pipeline',
     'AsyncPipeline',
+    'FetchRequest',
     'FetchResult',
     'Fetcher',
     'AsyncFetcher',
     # Default fetcher implementations (v1.1+)
     'DefaultFetcher',
     'DefaultAsyncFetcher',
-    # Built-in pipelines (v1.1+)
+    # Content-type router (v1.2+)
+    'ContentRouter',
+    # Built-in pipelines (v1.2+)
     'JSONLWriter',
     'BlobStore',
     'EdgesWriter',
+    'ArtifactStore',
+    # Cross-run deduplication (v1.2+)
+    'ContentHashStore',
     # Core
     'Crawler',           # Main crawler engine
     'AsyncCrawler',      # Async crawler engine
