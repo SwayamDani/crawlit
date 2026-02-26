@@ -38,7 +38,9 @@ from ..utils.sitemap import SitemapParser, get_sitemaps_from_robots
 from ..utils.rate_limiter import RateLimiter
 from ..utils.deduplication import ContentDeduplicator
 from ..utils.budget_tracker import BudgetTracker
-from ..models.page_artifact import PageArtifact, HTTPInfo, ContentInfo, CrawlMeta, DownloadRecord
+from ..models.page_artifact import (
+    PageArtifact, HTTPInfo, ContentInfo, CrawlMeta, DownloadRecord, CrawlJob, CrawlError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +110,12 @@ class Crawler:
         enable_js_embedded_data: bool = False,
         # --- Composable config (overrides individual kwargs when supplied) ---
         config: Optional[Any] = None,
+        # --- Fetch abstraction ---
+        fetcher: Optional[Any] = None,
+        # --- Incremental crawling ---
+        incremental: Optional[Any] = None,
+        # --- Crawl job metadata ---
+        run_id: Optional[str] = None,
     ) -> None:
         """Initialize the crawler with given parameters.
         
@@ -367,6 +375,36 @@ class Crawler:
         self._discovery_method: Dict[str, str] = {}
         self._discovery_lock: threading.Lock = threading.Lock()
 
+        # --- Type safety: reject async plugins in sync engine ---
+        from ..interfaces import AsyncExtractor, AsyncPipeline
+        for e in self.extractors:
+            if isinstance(e, AsyncExtractor):
+                raise TypeError(
+                    f"Extractor '{e.name}' is an AsyncExtractor and cannot be used with the "
+                    "synchronous Crawler.  Use AsyncCrawler or implement Extractor instead."
+                )
+        for p in self.pipelines:
+            if isinstance(p, AsyncPipeline):
+                raise TypeError(
+                    f"Pipeline '{type(p).__name__}' is an AsyncPipeline and cannot be used "
+                    "with the synchronous Crawler.  Use AsyncCrawler or implement Pipeline instead."
+                )
+
+        # --- Fetch abstraction (optional custom Fetcher) ---
+        self.fetcher: Optional[Any] = fetcher
+
+        # --- Incremental crawling ---
+        self.incremental: Optional[Any] = incremental
+        if self.incremental:
+            logger.info("Incremental crawling enabled")
+
+        # --- Crawl job / run metadata ---
+        self.job = CrawlJob(
+            run_id=run_id or __import__("uuid").uuid4().hex,
+            started_at=None,   # set at crawl() time
+            seed_urls=[self.start_url],
+        )
+
         if self.extractors:
             logger.info(f"Registered extractors: {[e.name for e in self.extractors]}")
         if self.pipelines:
@@ -505,6 +543,8 @@ class Crawler:
 
     def crawl(self) -> None:
         """Start the crawling process"""
+        self.job.started_at = datetime.now(timezone.utc)
+
         # Start progress tracker if provided
         if self.progress_tracker:
             self.progress_tracker.start()
@@ -680,8 +720,17 @@ class Crawler:
                 depth=depth,
                 discovered_from=discovered_from,
                 discovery_method=discovery_method,
+                run_id=self.job.run_id,
             ),
         )
+
+        # --- Incremental: get conditional headers (If-None-Match / If-Modified-Since) ---
+        incremental_headers: Dict[str, str] = {}
+        if self.incremental:
+            try:
+                incremental_headers = self.incremental.get_conditional_headers(url) or {}
+            except Exception as _e:
+                logger.debug(f"Incremental header lookup failed for {url}: {_e}")
 
         # Initialize result data for this URL (thread-safe)
         with self._results_lock:
@@ -727,9 +776,9 @@ class Crawler:
         
         # Fetch the page using our fetcher with session
         success, response_or_error, status_code = fetch_page(
-            url, 
-            self.user_agent, 
-            self.max_retries, 
+            url,
+            self.user_agent,
+            self.max_retries,
             self.timeout,
             session=session,
             use_js_rendering=self.use_js_rendering,
@@ -737,8 +786,24 @@ class Crawler:
             wait_for_selector=self.js_wait_for_selector,
             wait_for_timeout=self.js_wait_for_timeout,
             proxy=self.proxy,
-            proxy_manager=self.proxy_manager
+            proxy_manager=self.proxy_manager,
+            extra_headers=incremental_headers if incremental_headers else None,
         )
+
+        # --- Incremental: handle 304 Not Modified ---
+        if status_code == 304:
+            logger.debug(f"304 Not Modified for {url} — skipping reprocessing")
+            artifact.http = HTTPInfo(status=304, content_type=None)
+            artifact.add_error(CrawlError.not_modified())
+            with self._results_lock:
+                self.results[url]['status'] = 304
+                self.artifacts[url] = artifact
+            if self.incremental:
+                try:
+                    self.incremental.record_response(url, 304)
+                except Exception as _e:
+                    logger.debug(f"Incremental record failed for {url}: {_e}")
+            return
         
         # Update results (thread-safe)
         with self._results_lock:
@@ -901,7 +966,7 @@ class Crawler:
                                 artifact.extracted[extractor.name] = result
                         except Exception as exc:
                             logger.warning(f"Extractor '{extractor.name}' failed for {url}: {exc}")
-                            artifact.errors.append(f"extractor:{extractor.name}: {exc}")
+                            artifact.add_error(CrawlError.extractor(extractor.name, str(exc)))
 
                     # Cache the response if cache is enabled
                     if self.page_cache:
@@ -939,7 +1004,7 @@ class Crawler:
                             logger.debug(f"PDF extraction skipped (no PDF library) for {url}")
                     except Exception as e:
                         logger.warning(f"PDF extraction failed for {url}: {e}")
-                        artifact.errors.append(f"pdf_extraction: {e}")
+                        artifact.add_error(CrawlError.pdf(str(e)))
                 else:
                     logger.debug(f"Skipping content extraction for non-HTML content type: {content_type} at {url}")
 
@@ -966,6 +1031,19 @@ class Crawler:
                         }
                     )
 
+                # --- Incremental: record ETag/Last-Modified for next run ---
+                if self.incremental:
+                    try:
+                        self.incremental.record_response(
+                            url,
+                            status_code,
+                            etag=artifact.http.etag,
+                            last_modified=artifact.http.last_modified,
+                            content=artifact.content.raw_html,
+                        )
+                    except Exception as _e:
+                        logger.debug(f"Incremental record failed for {url}: {_e}")
+
                 # Run pipeline stages on the completed artifact
                 self._run_pipelines(artifact)
 
@@ -983,7 +1061,7 @@ class Crawler:
                             self.queue.append((link, depth + 1))
             except Exception as e:
                 logger.error(f"Error processing {url}: {e}")
-                artifact.errors.append(str(e))
+                artifact.add_error(CrawlError(code="UNKNOWN", message=str(e), source="engine"))
                 with self._results_lock:
                     self.results[url]['error'] = str(e)
                 # Record progress for failed URL
@@ -997,9 +1075,10 @@ class Crawler:
         else:
             # Store the error information
             logger.error(f"Failed to fetch {url}: {response_or_error}")
-            artifact.errors.append(str(response_or_error))
+            err_msg = str(response_or_error)
+            artifact.add_error(CrawlError.fetch(err_msg, http_status=status_code))
             with self._results_lock:
-                self.results[url]['error'] = response_or_error
+                self.results[url]['error'] = err_msg
             # Record progress for failed URL
             if self.progress_tracker:
                 self.progress_tracker.record_url(
@@ -1054,18 +1133,23 @@ class Crawler:
         return True
         
     def _run_pipelines(self, artifact: PageArtifact) -> None:
-        """Run all registered pipeline stages on *artifact* (thread-safe)."""
+        """Run all registered pipeline stages on *artifact* (thread-safe).
+
+        Each stage receives a :meth:`~PageArtifact.copy` of the current artifact
+        so that a failing stage cannot corrupt the state seen by later stages.
+        """
         current = artifact
         for pipeline in self.pipelines:
             if current is None:
                 break
+            snapshot = current.copy()  # snapshot before each stage
             try:
                 current = pipeline.process(current)
             except Exception as exc:
                 logger.warning(
                     f"Pipeline '{type(pipeline).__name__}' failed for {artifact.url}: {exc}"
                 )
-                current = artifact  # continue with original on error
+                current = snapshot  # restore pre-failure state
         with self._results_lock:
             self.artifacts[artifact.url] = current if current is not None else artifact
 

@@ -2,6 +2,9 @@
 
 from .page_artifact import (
     SCHEMA_VERSION,
+    ERROR_CODES,
+    CrawlError,
+    CrawlJob,
     PageArtifact,
     HTTPInfo,
     ContentInfo,
@@ -11,6 +14,9 @@ from .page_artifact import (
 
 __all__ = [
     "SCHEMA_VERSION",
+    "ERROR_CODES",
+    "CrawlError",
+    "CrawlJob",
     "PageArtifact",
     "HTTPInfo",
     "ContentInfo",

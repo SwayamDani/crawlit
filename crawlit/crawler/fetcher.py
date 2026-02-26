@@ -32,6 +32,7 @@ def fetch_page(
     proxy: Optional[Union[str, Dict[str, str]]] = None,
     proxy_manager: Optional[Any] = None,
     max_response_bytes: Optional[int] = None,
+    extra_headers: Optional[Dict[str, str]] = None,
 ) -> Tuple[bool, Union[requests.Response, str], int]:
     """
     Fetch a web page with retries and proper error handling
@@ -71,6 +72,9 @@ def fetch_page(
         "Accept": "text/html,application/xhtml+xml,application/xml",
         "Accept-Language": "en-US,en;q=0.9",
     }
+    # Merge caller-supplied extra headers (e.g. If-None-Match for incremental crawl)
+    if extra_headers:
+        headers.update(extra_headers)
     
     # Determine proxy to use
     proxies_dict = None
@@ -101,11 +105,12 @@ def fetch_page(
                 response = session.get(
                     url,
                     timeout=timeout,
-                    proxies=proxies_dict
+                    proxies=proxies_dict,
+                    headers=extra_headers,  # merges with session headers; None = no override
                 )
             else:
                 response = requests.get(
-                    url, 
+                    url,
                     headers=headers,
                     timeout=timeout,
                     proxies=proxies_dict

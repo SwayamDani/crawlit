@@ -15,13 +15,19 @@ from crawlit.models import (
     DownloadRecord,
     CrawlMeta,
     SCHEMA_VERSION,
+    ERROR_CODES,
+    CrawlError,
+    CrawlJob,
 )
 
 # Export composable config (v1.1+)
 from crawlit.config import CrawlerConfig, FetchConfig, RateLimitConfig, OutputConfig
 
 # Export plugin interfaces (v1.1+)
-from crawlit.interfaces import Extractor, AsyncExtractor, Pipeline, AsyncPipeline
+from crawlit.interfaces import Extractor, AsyncExtractor, Pipeline, AsyncPipeline, FetchResult, Fetcher, AsyncFetcher
+
+# Export default fetcher implementations (v1.1+)
+from crawlit.fetchers import DefaultFetcher, DefaultAsyncFetcher
 
 # Export built-in pipelines (v1.1+)
 from crawlit.pipelines import JSONLWriter, BlobStore, EdgesWriter
@@ -179,6 +185,9 @@ __all__ = [
     '__version__',
     # Stable data models (v1.1+)
     'SCHEMA_VERSION',
+    'ERROR_CODES',
+    'CrawlError',
+    'CrawlJob',
     'PageArtifact',
     'HTTPInfo',
     'ContentInfo',
@@ -194,6 +203,12 @@ __all__ = [
     'AsyncExtractor',
     'Pipeline',
     'AsyncPipeline',
+    'FetchResult',
+    'Fetcher',
+    'AsyncFetcher',
+    # Default fetcher implementations (v1.1+)
+    'DefaultFetcher',
+    'DefaultAsyncFetcher',
     # Built-in pipelines (v1.1+)
     'JSONLWriter',
     'BlobStore',
