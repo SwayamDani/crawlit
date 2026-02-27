@@ -113,6 +113,8 @@ class AsyncCrawler:
         run_id: Optional[str] = None,
         # --- Operational event log ---
         event_log: Optional[Any] = None,
+        # --- Memory management ---
+        retain_artifacts: bool = True,
     ):
         """Initialize the crawler with given parameters.
         
@@ -354,7 +356,11 @@ class AsyncCrawler:
                 self.extractors.append(JSEmbeddedDataExtractor())
                 logger.info("JS embedded data extraction enabled")
 
-        # Artifact store
+        # Artifact store: url -> PageArtifact
+        # When retain_artifacts is False, artifacts are flushed through pipelines
+        # but not kept in memory — use this for large crawls with disk-backed
+        # pipelines (ArtifactStore, BlobStore) to avoid unbounded memory growth.
+        self.retain_artifacts: bool = retain_artifacts
         self.artifacts: Dict[str, PageArtifact] = {}
 
         # Discovery metadata (populated when enqueuing, consumed in _process_url)
@@ -659,7 +665,8 @@ class AsyncCrawler:
                 if self.event_log is not None:
                     self.event_log.incremental_hit(url)
                 self.results[url]['status'] = 304
-                self.artifacts[url] = artifact
+                if self.retain_artifacts:
+                    self.artifacts[url] = artifact
                 if self.incremental:
                     try:
                         self.incremental.record_response(url, 304)
@@ -955,7 +962,8 @@ class AsyncCrawler:
                     )
 
             # Store artifact (always, even on failure)
-            self.artifacts[url] = artifact
+            if self.retain_artifacts:
+                self.artifacts[url] = artifact
     
     async def _should_crawl(self, url):
         """Determine if a URL should be crawled based on settings"""
@@ -1035,12 +1043,25 @@ class AsyncCrawler:
                 if self.event_log is not None:
                     self.event_log.pipeline_error(artifact.url, pipeline_name, str(exc))
                 current = snapshot  # restore pre-failure state
-        if current is not None:
+        if self.retain_artifacts and current is not None:
             self.artifacts[artifact.url] = current
         # else: artifact was deliberately dropped by a pipeline stage
 
     def get_results(self):
-        """Return the detailed crawl results (legacy dict format)."""
+        """Return the detailed crawl results (legacy dict format).
+
+        .. deprecated::
+            Use :meth:`get_artifacts` or pipeline-based output instead.
+            This dict duplicates data already present in :class:`PageArtifact`
+            and will be removed in a future release.
+        """
+        import warnings
+        warnings.warn(
+            "get_results() is deprecated. Use get_artifacts() or pipeline-based "
+            "output (ArtifactStore, JSONLWriter) instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return self.results
 
     def get_artifacts(self) -> Dict[str, PageArtifact]:
@@ -1079,8 +1100,8 @@ class AsyncCrawler:
         `filepath` and then renamed into place so that a crash during the write
         never leaves a partially-written state file.
 
-        Queue contents are snapshotted by reading the underlying deque without
-        draining it, so running workers are unaffected.
+        Queue contents are snapshotted by draining and refilling the queue.
+        This should only be called when workers are paused or stopped.
 
         Args:
             filepath: Path to save the state file
@@ -1089,9 +1110,18 @@ class AsyncCrawler:
         import os as _os
         import tempfile as _tempfile
 
-        # Snapshot queue without draining: read the internal deque directly.
-        # asyncio.Queue stores items in _queue (a collections.deque).
-        queue_list = list(self.queue._queue)  # type: ignore[attr-defined]
+        # Drain the queue to a list, then put items back.
+        # This avoids accessing the private asyncio.Queue._queue attribute.
+        queue_list = []
+        while not self.queue.empty():
+            try:
+                item = self.queue.get_nowait()
+                queue_list.append(item)
+                self.queue.task_done()
+            except asyncio.QueueEmpty:
+                break
+        for item in queue_list:
+            self.queue.put_nowait(item)
 
         metadata = {
             'start_url': self.start_url,
@@ -1148,13 +1178,16 @@ class AsyncCrawler:
         """
         Get statistics about the current queue.
 
-        Takes a non-destructive snapshot of the queue's internal deque so that
-        active workers are not interrupted.
+        Uses the public ``qsize()`` API for a non-destructive snapshot.
+        Depth distribution is not available without draining the queue,
+        so only the total size is returned.
 
         Returns:
             Dictionary with queue statistics
         """
-        # Read the internal deque without draining — same safe pattern used by
-        # save_state().  This avoids the race-prone drain-and-rebuild loop.
-        queue_snapshot = deque(self.queue._queue)  # type: ignore[attr-defined]
-        return QueueManager.get_queue_stats(queue_snapshot)
+        return {
+            'size': self.queue.qsize(),
+            'depths': {},
+            'min_depth': None,
+            'max_depth': None,
+        }

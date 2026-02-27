@@ -100,8 +100,9 @@ class BlobStore(Pipeline):
         with self._lock:
             subdir.mkdir(parents=True, exist_ok=True)
         dest = subdir / f"{sha}.html"
-        if not dest.exists():
-            self._write_file(dest, data)
+        # Content-addressed: same hash guarantees same content, so
+        # unconditional write is safe and avoids TOCTOU race.
+        self._write_file(dest, data)
 
         artifact.content.blob_path = str(dest)
         artifact.content.blob_sha256 = sha
@@ -125,8 +126,9 @@ class BlobStore(Pipeline):
         with self._lock:
             subdir.mkdir(parents=True, exist_ok=True)
         dest = subdir / f"{sha}.pdf"
-        if not dest.exists():
-            self._write_file(dest, data)
+        # Content-addressed: same hash guarantees same content, so
+        # unconditional write is safe and avoids TOCTOU race.
+        self._write_file(dest, data)
 
         artifact.content.blob_path = str(dest)
         artifact.content.blob_sha256 = sha

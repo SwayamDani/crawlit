@@ -119,6 +119,8 @@ class Crawler:
         run_id: Optional[str] = None,
         # --- Operational event log ---
         event_log: Optional[Any] = None,
+        # --- Memory management ---
+        retain_artifacts: bool = True,
     ) -> None:
         """Initialize the crawler with given parameters.
         
@@ -371,6 +373,10 @@ class Crawler:
                 logger.info("JS embedded data extraction enabled")
 
         # Artifact store: url → PageArtifact
+        # When retain_artifacts is False, artifacts are flushed through pipelines
+        # but not kept in memory — use this for large crawls with disk-backed
+        # pipelines (ArtifactStore, BlobStore) to avoid unbounded memory growth.
+        self.retain_artifacts: bool = retain_artifacts
         self.artifacts: Dict[str, PageArtifact] = {}
 
         # Discovery metadata: populated before enqueuing, consumed during processing
@@ -836,7 +842,8 @@ class Crawler:
                 self.event_log.incremental_hit(url)
             with self._results_lock:
                 self.results[url]['status'] = 304
-                self.artifacts[url] = artifact
+                if self.retain_artifacts:
+                    self.artifacts[url] = artifact
             if self.incremental:
                 try:
                     self.incremental.record_response(url, 304)
@@ -1148,8 +1155,9 @@ class Crawler:
                 )
 
         # Store artifact (always, even on failure, so callers have a record)
-        with self._results_lock:
-            self.artifacts[url] = artifact
+        if self.retain_artifacts:
+            with self._results_lock:
+                self.artifacts[url] = artifact
     
     def _should_crawl(self, url: str) -> bool:
         """Determine if a URL should be crawled based on settings"""
@@ -1225,13 +1233,27 @@ class Crawler:
                 if self.event_log is not None:
                     self.event_log.pipeline_error(artifact.url, pipeline_name, str(exc))
                 current = snapshot  # restore pre-failure state
-        with self._results_lock:
-            if current is not None:
-                self.artifacts[artifact.url] = current
-            # else: artifact was deliberately dropped by a pipeline stage
+        if self.retain_artifacts:
+            with self._results_lock:
+                if current is not None:
+                    self.artifacts[artifact.url] = current
+                # else: artifact was deliberately dropped by a pipeline stage
 
     def get_results(self) -> Dict[str, Dict[str, Any]]:
-        """Return the detailed crawl results (legacy dict format)."""
+        """Return the detailed crawl results (legacy dict format).
+
+        .. deprecated::
+            Use :meth:`get_artifacts` or pipeline-based output instead.
+            This dict duplicates data already present in :class:`PageArtifact`
+            and will be removed in a future release.
+        """
+        import warnings
+        warnings.warn(
+            "get_results() is deprecated. Use get_artifacts() or pipeline-based "
+            "output (ArtifactStore, JSONLWriter) instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return self.results
 
     def get_artifacts(self) -> Dict[str, PageArtifact]:

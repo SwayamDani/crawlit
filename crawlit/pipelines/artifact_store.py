@@ -41,6 +41,7 @@ from typing import Optional, Any
 
 from ..interfaces import Pipeline
 from ..models.page_artifact import PageArtifact, CrawlJob
+from .blob_store import BlobStore
 
 logger = logging.getLogger(__name__)
 
@@ -80,16 +81,21 @@ class ArtifactStore(Pipeline):
         write_blobs: bool = True,
         write_edges: bool = True,
         write_events: bool = True,
+        hash_store=None,
     ) -> None:
         self._root = Path(store_dir)
         self._root.mkdir(parents=True, exist_ok=True)
-        if write_blobs:
-            (self._root / self.BLOBS_DIR / "html").mkdir(parents=True, exist_ok=True)
-            (self._root / self.BLOBS_DIR / "pdf").mkdir(parents=True, exist_ok=True)
 
         self._write_blobs = write_blobs
         self._write_edges = write_edges
         self._lock = threading.Lock()
+
+        # Delegate blob writing to BlobStore (single implementation)
+        self._blob_store: Optional[BlobStore] = None
+        if write_blobs:
+            self._blob_store = BlobStore(
+                self._root / self.BLOBS_DIR, hash_store=hash_store
+            )
 
         self._artifacts_fh = (self._root / self.ARTIFACTS_LOG).open(
             "a", encoding="utf-8"
@@ -118,11 +124,11 @@ class ArtifactStore(Pipeline):
 
     def process(self, artifact: PageArtifact) -> Optional[PageArtifact]:
         """Write artifact to all configured outputs and return it unchanged."""
+        if self._blob_store is not None:
+            self._blob_store.process(artifact)
         self._append_artifact(artifact)
         if self._write_edges:
             self._append_edge(artifact)
-        if self._write_blobs:
-            self._save_blob(artifact)
         return artifact
 
     # ------------------------------------------------------------------
@@ -185,34 +191,6 @@ class ArtifactStore(Pipeline):
         with self._lock:
             self._edges_fh.write(line + "\n")
             self._edges_fh.flush()
-
-    def _save_blob(self, artifact: PageArtifact) -> None:
-        ct = (artifact.http.content_type or "").lower()
-        raw = artifact.content.raw_html
-        if not raw:
-            return
-        if "text/html" in ct:
-            self._write_blob(artifact, raw.encode("utf-8", errors="replace"), "html", ".html")
-        elif "application/pdf" in ct:
-            self._write_blob(artifact, raw.encode("latin-1", errors="replace"), "pdf", ".pdf")
-
-    def _write_blob(
-        self, artifact: PageArtifact, data: bytes, subtype: str, ext: str
-    ) -> None:
-        sha = hashlib.sha256(data).hexdigest()
-        subdir = self._root / self.BLOBS_DIR / subtype / sha[:2]
-        with self._lock:
-            subdir.mkdir(parents=True, exist_ok=True)
-        dest = subdir / f"{sha}{ext}"
-        if not dest.exists():
-            try:
-                dest.write_bytes(data)
-            except Exception as exc:
-                logger.warning(f"ArtifactStore: blob write failed ({dest}): {exc}")
-                return
-        # Update the artifact's content pointers in-place
-        artifact.content.blob_path = str(dest)
-        artifact.content.blob_sha256 = sha
 
     # ------------------------------------------------------------------
     # Cleanup

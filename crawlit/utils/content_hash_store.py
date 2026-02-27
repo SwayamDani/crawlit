@@ -138,14 +138,19 @@ class ContentHashStore:
         Return the blob path recorded for *content*, or ``None`` if unknown.
 
         Useful to avoid re-writing a blob when the content was seen in a
-        previous run.
+        previous run.  Returns ``None`` (and logs a warning) if the recorded
+        path no longer exists on disk.
         """
         sha = self.hash_content(content)
         with self._lock, self._connect() as conn:
             row = conn.execute(
                 "SELECT blob_path FROM content_hashes WHERE sha256 = ?", (sha,)
             ).fetchone()
-        return row[0] if row else None
+        if row and row[0]:
+            if Path(row[0]).exists():
+                return row[0]
+            logger.warning(f"Stale blob path for {sha[:12]}…: {row[0]} no longer exists")
+        return None
 
     def stats(self) -> dict:
         """Return a summary dict: total hashes, unique runs, date range."""
@@ -170,4 +175,7 @@ class ContentHashStore:
 
     def _connect(self) -> sqlite3.Connection:
         # check_same_thread=False is safe because we serialise via self._lock.
-        return sqlite3.connect(self._db_path, check_same_thread=False)
+        conn = sqlite3.connect(self._db_path, check_same_thread=False)
+        conn.execute("PRAGMA busy_timeout = 5000")
+        conn.execute("PRAGMA journal_mode = WAL")
+        return conn

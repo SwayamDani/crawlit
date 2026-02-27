@@ -8,7 +8,6 @@ Enables crawling only changed pages using conditional HTTP requests.
 import logging
 import json
 import sqlite3
-import pickle
 import threading
 from typing import Dict, Optional, Any, Tuple
 from datetime import datetime, timezone, timedelta
@@ -234,8 +233,12 @@ class IncrementalState:
 class StateManager:
     """
     Manages saving and loading IncrementalState to/from disk.
+
+    Only JSON serialisation is supported.  Pickle was removed because
+    ``pickle.load()`` can execute arbitrary code, making it unsafe for files
+    that may be writable by other processes.
     """
-    
+
     def __init__(
         self,
         filepath: str,
@@ -244,65 +247,62 @@ class StateManager:
     ):
         """
         Initialize state manager.
-        
+
         Args:
             filepath: Path to state file
-            format: File format ('json' or 'pickle')
+            format: File format (only ``'json'`` is supported)
             auto_save: Whether to auto-save (not implemented yet)
         """
         self.filepath = Path(filepath)
         self.format = format.lower()
         self.auto_save = auto_save
-        
-        if self.format not in ('json', 'pickle'):
-            raise ValueError(f"Unsupported format: {format}. Use 'json' or 'pickle'")
-    
+
+        if self.format == 'pickle':
+            raise ValueError(
+                "Pickle format is no longer supported due to security risks "
+                "(arbitrary code execution on load).  Use format='json' instead."
+            )
+        if self.format != 'json':
+            raise ValueError(f"Unsupported format: {format}. Use 'json'.")
+
     def save(self, state: IncrementalState) -> None:
         """
         Save state to file.
-        
+
         Args:
             state: IncrementalState to save
         """
         # Ensure directory exists
         self.filepath.parent.mkdir(parents=True, exist_ok=True)
-        
+
         state_dict = state.to_dict()
-        
-        if self.format == 'json':
-            with open(self.filepath, 'w', encoding='utf-8') as f:
-                json.dump(state_dict, f, indent=2, ensure_ascii=False)
-        elif self.format == 'pickle':
-            with open(self.filepath, 'wb') as f:
-                pickle.dump(state_dict, f)
-        
+
+        with open(self.filepath, 'w', encoding='utf-8') as f:
+            json.dump(state_dict, f, indent=2, ensure_ascii=False)
+
         logger.debug(f"Saved state to {self.filepath} ({len(state)} URLs)")
-    
+
     def load(self) -> IncrementalState:
         """
         Load state from file.
-        
+
         Returns:
             IncrementalState loaded from file, or empty state if file doesn't exist
         """
         if not self.filepath.exists():
             logger.debug(f"State file {self.filepath} does not exist, returning empty state")
             return IncrementalState()
-        
+
         try:
-            if self.format == 'json':
-                with open(self.filepath, 'r', encoding='utf-8') as f:
-                    state_dict = json.load(f)
-            elif self.format == 'pickle':
-                with open(self.filepath, 'rb') as f:
-                    state_dict = pickle.load(f)
-            
+            with open(self.filepath, 'r', encoding='utf-8') as f:
+                state_dict = json.load(f)
+
             state = IncrementalState()
             state.from_dict(state_dict)
-            
+
             logger.debug(f"Loaded state from {self.filepath} ({len(state)} URLs)")
             return state
-            
+
         except Exception as e:
             logger.error(f"Failed to load state from {self.filepath}: {e}")
             return IncrementalState()
@@ -333,19 +333,27 @@ class IncrementalCrawler:
         self.storage_path = Path(storage_path)
         self.use_content_hash = use_content_hash
         self.force_refresh = force_refresh
-        
+        self._lock = threading.Lock()
+
         # Initialize database
         self._init_database()
         
         logger.debug(f"Incremental crawler initialized: storage={storage_path}, force_refresh={force_refresh}")
     
+    def _connect(self) -> sqlite3.Connection:
+        """Create a connection with standard PRAGMA settings."""
+        conn = sqlite3.connect(str(self.storage_path))
+        conn.execute("PRAGMA busy_timeout = 5000")
+        conn.execute("PRAGMA journal_mode = WAL")
+        return conn
+
     def _init_database(self) -> None:
         """Initialize the SQLite database."""
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        conn = sqlite3.connect(str(self.storage_path))
+
+        conn = self._connect()
         cursor = conn.cursor()
-        
+
         # Create table for storing page metadata
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS page_metadata (
@@ -357,10 +365,10 @@ class IncrementalCrawler:
                 crawl_count INTEGER DEFAULT 1
             )
         ''')
-        
+
         conn.commit()
         conn.close()
-        
+
         logger.debug("Incremental crawl database initialized")
     
     def get_conditional_headers(self, url: str) -> Dict[str, str]:
@@ -375,38 +383,35 @@ class IncrementalCrawler:
         """
         if self.force_refresh:
             return {}
-        
+
         try:
-            conn = sqlite3.connect(str(self.storage_path))
-            cursor = conn.cursor()
-            
-            cursor.execute(
-                'SELECT etag, last_modified FROM page_metadata WHERE url = ?',
-                (url,)
-            )
-            
-            row = cursor.fetchone()
-            conn.close()
-            
+            with self._lock, self._connect() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    'SELECT etag, last_modified FROM page_metadata WHERE url = ?',
+                    (url,)
+                )
+                row = cursor.fetchone()
+
             if not row:
                 return {}
-            
+
             headers = {}
             etag, last_modified = row
-            
+
             if etag:
                 headers['If-None-Match'] = etag
-            
+
             if last_modified:
                 headers['If-Modified-Since'] = last_modified
-            
+
             logger.debug(f"Using conditional headers for {url}: {headers}")
             return headers
-            
+
         except Exception as e:
             logger.error(f"Failed to get conditional headers for {url}: {e}")
             return {}
-    
+
     def record_response(
         self,
         url: str,
@@ -431,38 +436,28 @@ class IncrementalCrawler:
             # Use provided hash, or compute from content if enabled
             if content_hash is None and self.use_content_hash and content:
                 content_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
-            
-            conn = sqlite3.connect(str(self.storage_path))
-            cursor = conn.cursor()
-            
-            # Check if URL exists
-            cursor.execute('SELECT crawl_count FROM page_metadata WHERE url = ?', (url,))
-            row = cursor.fetchone()
-            
-            now = datetime.now().isoformat()
-            
-            if row:
-                # Update existing record
-                crawl_count = row[0] + 1
-                cursor.execute('''
-                    UPDATE page_metadata
-                    SET etag = ?, last_modified = ?, content_hash = ?,
-                        last_crawled = ?, crawl_count = ?
-                    WHERE url = ?
-                ''', (etag, last_modified, content_hash, now, crawl_count, url))
-            else:
-                # Insert new record
+
+            now = datetime.now(timezone.utc).isoformat()
+
+            with self._lock, self._connect() as conn:
+                cursor = conn.cursor()
+                # Atomic upsert: INSERT OR REPLACE avoids the SELECT->INSERT/UPDATE
+                # race where two threads both pass the SELECT and both try to INSERT.
                 cursor.execute('''
                     INSERT INTO page_metadata
-                    (url, etag, last_modified, content_hash, last_crawled, crawl_count)
+                        (url, etag, last_modified, content_hash, last_crawled, crawl_count)
                     VALUES (?, ?, ?, ?, ?, 1)
+                    ON CONFLICT(url) DO UPDATE SET
+                        etag = excluded.etag,
+                        last_modified = excluded.last_modified,
+                        content_hash = excluded.content_hash,
+                        last_crawled = excluded.last_crawled,
+                        crawl_count = crawl_count + 1
                 ''', (url, etag, last_modified, content_hash, now))
-            
-            conn.commit()
-            conn.close()
-            
+                conn.commit()
+
             logger.debug(f"Recorded metadata for {url}")
-            
+
         except Exception as e:
             logger.error(f"Failed to record metadata for {url}: {e}")
     
@@ -479,36 +474,33 @@ class IncrementalCrawler:
         """
         if self.force_refresh:
             return True
-        
+
         if not self.use_content_hash or not content:
             return True
-        
+
         try:
-            conn = sqlite3.connect(str(self.storage_path))
-            cursor = conn.cursor()
-            
-            cursor.execute(
-                'SELECT content_hash FROM page_metadata WHERE url = ?',
-                (url,)
-            )
-            
-            row = cursor.fetchone()
-            conn.close()
-            
+            with self._lock, self._connect() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    'SELECT content_hash FROM page_metadata WHERE url = ?',
+                    (url,)
+                )
+                row = cursor.fetchone()
+
             if not row or not row[0]:
                 return True
-            
+
             # Calculate current content hash
             current_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
-            
+
             # Compare hashes
             is_modified = current_hash != row[0]
-            
+
             if not is_modified:
                 logger.debug(f"Content unchanged for {url}")
-            
+
             return is_modified
-            
+
         except Exception as e:
             logger.error(f"Failed to check if modified for {url}: {e}")
             return True
@@ -521,27 +513,25 @@ class IncrementalCrawler:
             Dictionary with statistics
         """
         try:
-            conn = sqlite3.connect(str(self.storage_path))
-            cursor = conn.cursor()
-            
-            # Total pages
-            cursor.execute('SELECT COUNT(*) FROM page_metadata')
-            total_pages = cursor.fetchone()[0]
-            
-            # Pages with ETags
-            cursor.execute('SELECT COUNT(*) FROM page_metadata WHERE etag IS NOT NULL')
-            pages_with_etag = cursor.fetchone()[0]
-            
-            # Pages with Last-Modified
-            cursor.execute('SELECT COUNT(*) FROM page_metadata WHERE last_modified IS NOT NULL')
-            pages_with_last_modified = cursor.fetchone()[0]
-            
-            # Average crawl count
-            cursor.execute('SELECT AVG(crawl_count) FROM page_metadata')
-            avg_crawl_count = cursor.fetchone()[0] or 0
-            
-            conn.close()
-            
+            with self._lock, self._connect() as conn:
+                cursor = conn.cursor()
+
+                # Total pages
+                cursor.execute('SELECT COUNT(*) FROM page_metadata')
+                total_pages = cursor.fetchone()[0]
+
+                # Pages with ETags
+                cursor.execute('SELECT COUNT(*) FROM page_metadata WHERE etag IS NOT NULL')
+                pages_with_etag = cursor.fetchone()[0]
+
+                # Pages with Last-Modified
+                cursor.execute('SELECT COUNT(*) FROM page_metadata WHERE last_modified IS NOT NULL')
+                pages_with_last_modified = cursor.fetchone()[0]
+
+                # Average crawl count
+                cursor.execute('SELECT AVG(crawl_count) FROM page_metadata')
+                avg_crawl_count = cursor.fetchone()[0] or 0
+
             return {
                 'total_pages': total_pages,
                 'pages_with_etag': pages_with_etag,
@@ -549,7 +539,7 @@ class IncrementalCrawler:
                 'avg_crawl_count': round(avg_crawl_count, 2),
                 'storage_path': str(self.storage_path)
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to get stats: {e}")
             return {}
@@ -562,19 +552,16 @@ class IncrementalCrawler:
             url: Specific URL to clear (None = clear all)
         """
         try:
-            conn = sqlite3.connect(str(self.storage_path))
-            cursor = conn.cursor()
-            
-            if url:
-                cursor.execute('DELETE FROM page_metadata WHERE url = ?', (url,))
-                logger.info(f"Cleared metadata for {url}")
-            else:
-                cursor.execute('DELETE FROM page_metadata')
-                logger.info("Cleared all metadata")
-            
-            conn.commit()
-            conn.close()
-            
+            with self._lock, self._connect() as conn:
+                cursor = conn.cursor()
+                if url:
+                    cursor.execute('DELETE FROM page_metadata WHERE url = ?', (url,))
+                    logger.info(f"Cleared metadata for {url}")
+                else:
+                    cursor.execute('DELETE FROM page_metadata')
+                    logger.info("Cleared all metadata")
+                conn.commit()
+
         except Exception as e:
             logger.error(f"Failed to clear metadata: {e}")
     
@@ -586,12 +573,11 @@ class IncrementalCrawler:
             filepath: Path to export file
         """
         try:
-            conn = sqlite3.connect(str(self.storage_path))
-            cursor = conn.cursor()
-            
-            cursor.execute('SELECT * FROM page_metadata')
-            rows = cursor.fetchall()
-            
+            with self._lock, self._connect() as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT * FROM page_metadata')
+                rows = cursor.fetchall()
+
             # Convert to list of dictionaries
             metadata = []
             for row in rows:
@@ -603,14 +589,12 @@ class IncrementalCrawler:
                     'last_crawled': row[4],
                     'crawl_count': row[5]
                 })
-            
-            conn.close()
-            
+
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(metadata, f, indent=2)
-            
+
             logger.info(f"Exported {len(metadata)} records to {filepath}")
-            
+
         except Exception as e:
             logger.error(f"Failed to export metadata: {e}")
             raise
@@ -626,11 +610,10 @@ class IncrementalCrawler:
     def __len__(self) -> int:
         """Return the number of URLs tracked."""
         try:
-            conn = sqlite3.connect(str(self.storage_path))
-            cursor = conn.cursor()
-            cursor.execute('SELECT COUNT(*) FROM page_metadata')
-            count = cursor.fetchone()[0]
-            conn.close()
+            with self._lock, self._connect() as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT COUNT(*) FROM page_metadata')
+                count = cursor.fetchone()[0]
             return count
         except Exception as e:
             logger.error(f"Failed to get count: {e}")
@@ -681,40 +664,37 @@ class IncrementalCrawler:
         """
         if self.force_refresh:
             return True, "force_refresh enabled"
-        
+
         try:
-            conn = sqlite3.connect(str(self.storage_path))
-            cursor = conn.cursor()
-            
-            cursor.execute(
-                'SELECT etag, last_modified FROM page_metadata WHERE url = ?',
-                (url,)
-            )
-            
-            row = cursor.fetchone()
-            conn.close()
-            
+            with self._lock, self._connect() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    'SELECT etag, last_modified FROM page_metadata WHERE url = ?',
+                    (url,)
+                )
+                row = cursor.fetchone()
+
             if not row:
                 return True, "no previous metadata"
-            
+
             stored_etag, stored_last_modified = row
-            
+
             # Check if content has changed
             if current_etag and stored_etag:
                 if current_etag == stored_etag:
                     return False, "etag unchanged"
                 else:
                     return True, "etag changed"
-            
+
             if current_last_modified and stored_last_modified:
                 if current_last_modified == stored_last_modified:
                     return False, "last_modified unchanged"
                 else:
                     return True, "last_modified changed"
-            
+
             # If no comparison possible, crawl to be safe
             return True, "no comparison data available"
-            
+
         except Exception as e:
             logger.error(f"Failed to check if {url} should be crawled: {e}")
             return True, f"error: {e}"

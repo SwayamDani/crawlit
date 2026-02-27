@@ -220,6 +220,12 @@ def parse_args():
                         help="Store HTML content on disk instead of memory")
     parser.add_argument("--storage-dir", default=".crawlit_storage",
                         help="Directory for disk-based HTML storage")
+
+    # Incremental crawling options
+    parser.add_argument("--incremental", action="store_true", default=False,
+                        help="Enable incremental crawling using ETags/Last-Modified (skips unchanged pages)")
+    parser.add_argument("--incremental-db", default="./incremental_crawl.db",
+                        help="Path to SQLite database for incremental crawl state")
     
     return parser.parse_args()
     
@@ -369,11 +375,21 @@ def main():
                 storage_dir=args.storage_dir
             )
             logger.info(f"Disk storage enabled: {args.storage_dir}")
-        
+
+        # Setup incremental crawling if enabled
+        incremental_crawler = None
+        if args.incremental:
+            from crawlit.utils.incremental import IncrementalCrawler
+            incremental_crawler = IncrementalCrawler(
+                storage_path=args.incremental_db,
+                use_content_hash=True,
+            )
+            logger.info(f"Incremental crawling enabled (db={args.incremental_db})")
+
         # Setup proxy if provided
         proxy_manager = None
         proxy = args.proxy if hasattr(args, 'proxy') else None
-        
+
         if hasattr(args, 'proxy_file') and args.proxy_file:
             # Load proxies from file
             logger.info(f"Loading proxies from file: {args.proxy_file}")
@@ -441,9 +457,10 @@ def main():
                     use_sitemap=args.use_sitemap,
                     sitemap_urls=args.sitemap_url,
                     same_path_only=args.same_path_only,
-                    max_queue_size=args.max_queue_size
+                    max_queue_size=args.max_queue_size,
+                    incremental=incremental_crawler
                 )
-                
+
                 # Run the crawler in the current event loop
                 loop.run_until_complete(crawler.crawl())
             finally:
@@ -483,7 +500,8 @@ def main():
                 sitemap_urls=args.sitemap_url,
                 same_path_only=args.same_path_only,
                 max_queue_size=args.max_queue_size,
-                max_workers=args.max_workers
+                max_workers=args.max_workers,
+                incremental=incremental_crawler
             )
             
             # Resume from saved state if specified

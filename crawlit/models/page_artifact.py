@@ -324,25 +324,26 @@ class PageArtifact:
 
     def copy(self) -> "PageArtifact":
         """
-        Return a shallow copy with independent mutable containers.
+        Return a copy with independent mutable containers.
 
-        ``http``, ``content``, ``source``, and ``crawl`` sub-objects are
-        shared (they are treated as immutable once set by the engine);
-        ``links``, ``extracted``, ``downloads``, and ``errors`` are copied
+        All sub-objects that pipelines may mutate (``content``, ``http``,
+        ``source``, ``crawl``) are shallow-copied via ``dataclasses.replace``
         so that one pipeline stage cannot corrupt a later stage's view.
+        ``links``, ``extracted``, ``downloads``, and ``errors`` are list/dict
+        copies for the same reason.
         """
         return PageArtifact(
             schema_version=self.schema_version,
             url=self.url,
             fetched_at=self.fetched_at,
-            http=self.http,
-            content=self.content,
-            source=self.source,
+            http=dataclasses.replace(self.http),
+            content=dataclasses.replace(self.content),
+            source=dataclasses.replace(self.source),
             links=list(self.links),
             extracted=dict(self.extracted),
             downloads=list(self.downloads),
             errors=list(self.errors),
-            crawl=self.crawl,
+            crawl=dataclasses.replace(self.crawl),
         )
 
     # ------------------------------------------------------------------
