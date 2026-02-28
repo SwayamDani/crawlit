@@ -47,6 +47,7 @@ def parse_args():
     parser.add_argument("--ignore-robots", "-i", action="store_true", default=False, 
                        help="Ignore robots.txt rules when crawling")
     parser.add_argument("--delay", type=float, default=0.1, help="Delay between requests (seconds)")
+    parser.add_argument("--timeout", type=int, default=10, help="Request timeout in seconds")
     parser.add_argument("--user-agent", "-a", default="crawlit/1.0", help="Custom User-Agent string")
     parser.add_argument("--allow-external", "-e", action="store_true", default=False, 
                         help="Allow crawling URLs outside the initial domain")
@@ -433,6 +434,7 @@ def main():
                     internal_only=not args.allow_external,  # Invert the allow-external flag
                     user_agent=args.user_agent,
                     delay=args.delay,
+                    timeout=args.timeout,
                     respect_robots=not args.ignore_robots,  # Invert the ignore-robots flag
                     enable_image_extraction=args.extract_images,
                     enable_keyword_extraction=args.extract_keywords,
@@ -463,6 +465,38 @@ def main():
 
                 # Run the crawler in the current event loop
                 loop.run_until_complete(crawler.crawl())
+                
+                # Handle async post-processing inside the loop context
+                async def async_post_process():
+                    nonlocal results, budget_stats
+                    
+                    # Get results
+                    results = crawler.get_results()
+                    logger.info(f"Crawl complete. Visited {len(results)} URLs.")
+                    
+                    # Save state if requested
+                    if args.save_state:
+                        try:
+                            await crawler.save_state(args.save_state)
+                            logger.info(f"Crawl state saved to {args.save_state}")
+                        except Exception as e:
+                            logger.error(f"Failed to save state: {e}")
+                    
+                    # Display budget statistics if budget tracking was enabled
+                    if budget_tracker:
+                        budget_stats = await budget_tracker.get_stats()
+                        logger.info(f"Budget usage: {budget_stats['pages_crawled']} pages, {budget_stats['mb_downloaded']:.2f} MB")
+                        if budget_stats.get('elapsed_time_seconds'):
+                            logger.info(f"Total time: {budget_stats['elapsed_time_seconds']:.2f}s")
+                        if budget_stats['budget_exceeded']:
+                            logger.warning(f"Budget was exceeded: {budget_stats['exceeded_reason']}")
+                
+                # Initialize variables for async context
+                results = []
+                budget_stats = None
+                
+                # Run async post-processing
+                loop.run_until_complete(async_post_process())
             finally:
                 # Close the event loop
                 loop.close()
@@ -476,6 +510,7 @@ def main():
                 internal_only=not args.allow_external,  # Invert the allow-external flag
                 user_agent=args.user_agent,
                 delay=args.delay,
+                timeout=args.timeout,
                 respect_robots=not args.ignore_robots,  # Invert the ignore-robots flag
                 enable_image_extraction=args.extract_images,
                 enable_keyword_extraction=args.extract_keywords,
@@ -516,26 +551,27 @@ def main():
             # Start crawling
             crawler.crawl()
             
-        # Get results
-        results = crawler.get_results()
-        logger.info(f"Crawl complete. Visited {len(results)} URLs.")
-        
-        # Save state if requested
-        if args.save_state:
-            try:
-                crawler.save_state(args.save_state)
-                logger.info(f"Crawl state saved to {args.save_state}")
-            except Exception as e:
-                logger.error(f"Failed to save state: {e}")
-        
-        # Display budget statistics if budget tracking was enabled
-        if budget_tracker:
-            stats = budget_tracker.get_stats()
-            logger.info(f"Budget usage: {stats['pages_crawled']} pages, {stats['mb_downloaded']:.2f} MB")
-            if stats.get('elapsed_time_seconds'):
-                logger.info(f"Total time: {stats['elapsed_time_seconds']:.2f}s")
-            if stats['budget_exceeded']:
-                logger.warning(f"Budget was exceeded: {stats['exceeded_reason']}")
+            # Handle sync post-processing
+            results = crawler.get_results()
+            logger.info(f"Crawl complete. Visited {len(results)} URLs.")
+            
+            # Save state if requested (sync version)
+            if args.save_state:
+                try:
+                    crawler.save_state(args.save_state)
+                    logger.info(f"Crawl state saved to {args.save_state}")
+                except Exception as e:
+                    logger.error(f"Failed to save state: {e}")
+            
+            # Display budget statistics if budget tracking was enabled (sync version)
+            budget_stats = None
+            if budget_tracker:
+                budget_stats = budget_tracker.get_stats()
+                logger.info(f"Budget usage: {budget_stats['pages_crawled']} pages, {budget_stats['mb_downloaded']:.2f} MB")
+                if budget_stats.get('elapsed_time_seconds'):
+                    logger.info(f"Total time: {budget_stats['elapsed_time_seconds']:.2f}s")
+                if budget_stats['budget_exceeded']:
+                    logger.warning(f"Budget was exceeded: {budget_stats['exceeded_reason']}")
         
         # Handle table extraction if enabled
         if args.extract_tables:
@@ -606,6 +642,16 @@ def main():
                         'images_count': num_images,
                         'images': images
                     }, f, indent=2)
+                
+                # Update the main results with filename information
+                if 'images' in results[url]:
+                    # Add filename information to each image
+                    images_with_filename = {
+                        "data": results[url]['images'],
+                        "filename": output_file,
+                        "count": len(results[url]['images'])
+                    }
+                    results[url]['images'] = images_with_filename
             
             # Report results
             if total_images > 0:

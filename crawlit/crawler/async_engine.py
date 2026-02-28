@@ -524,6 +524,66 @@ class AsyncCrawler:
         if self.event_log is not None:
             self.event_log.crawl_end(pages_crawled=len(self.visited_urls))
 
+    async def _discover_sitemaps(self, session):
+        """Discover and parse sitemaps to populate the queue asynchronously"""
+        from ..utils.sitemap import get_sitemaps_from_robots_async
+        
+        sitemap_urls_to_parse = []
+        
+        # Get sitemaps from robots.txt if available
+        if self.respect_robots and self.robots_handler:
+            try:
+                robots_sitemaps = await get_sitemaps_from_robots_async(self.robots_handler, self.start_url)
+                sitemap_urls_to_parse.extend(robots_sitemaps)
+                if robots_sitemaps:
+                    logger.info(f"Found {len(robots_sitemaps)} sitemap(s) in robots.txt")
+            except Exception as e:
+                logger.warning(f"Error extracting sitemaps from robots.txt: {e}")
+        
+        # Add explicitly provided sitemap URLs
+        if self.sitemap_urls:
+            sitemap_urls_to_parse.extend(self.sitemap_urls)
+            logger.info(f"Using {len(self.sitemap_urls)} explicitly provided sitemap URL(s)")
+        
+        # Try common sitemap locations if no sitemaps found
+        if not sitemap_urls_to_parse:
+            from urllib.parse import urlparse
+            parsed_url = urlparse(self.start_url)
+            common_sitemaps = [
+                f"{parsed_url.scheme}://{parsed_url.netloc}/sitemap.xml",
+                f"{parsed_url.scheme}://{parsed_url.netloc}/sitemap_index.xml",
+            ]
+            sitemap_urls_to_parse.extend(common_sitemaps)
+            logger.info("No sitemaps found, trying common locations")
+        
+        # Parse each sitemap and add URLs to queue
+        urls_added = 0
+        for sitemap_url in sitemap_urls_to_parse:
+            try:
+                url_info_list = await self.sitemap_parser.parse_sitemap_async(sitemap_url, session)
+                for url_info in url_info_list:
+                    url = url_info['url']
+                    # Check if URL should be crawled
+                    if await self._should_crawl(url):
+                        # Check queue size limit
+                        if self.max_queue_size and self.queue.qsize() >= self.max_queue_size:
+                            logger.warning(f"Queue size limit ({self.max_queue_size}) reached while adding sitemap URLs")
+                            break
+                        self._discovered_from[url] = sitemap_url
+                        self._discovery_method[url] = "sitemap"
+                        await self.queue.put((url, 0))  # Sitemap URLs start at depth 0
+                        urls_added += 1
+                if urls_added > 0:
+                    logger.info(f"Added {urls_added} URLs from sitemap: {sitemap_url}")
+            except Exception as e:
+                logger.warning(f"Error parsing sitemap {sitemap_url}: {e}")
+                continue
+        
+        if urls_added > 0:
+            logger.info(f"Total URLs added from sitemaps: {urls_added}")
+        else:
+            logger.info("No URLs found in sitemaps or all URLs were filtered out")
+
     async def _worker(self):
         """Worker task for processing URLs from the queue"""
         while True:

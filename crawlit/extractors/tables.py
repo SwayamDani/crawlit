@@ -475,5 +475,26 @@ def extract_and_save_tables_from_crawl(results: Dict[str, Any],
                 saved_files = tables_to_csv(tables, base_filename)
                 
             stats["total_files_saved"] += len(saved_files)
+            
+            # Update the original results with filename information
+            if url in results and 'tables' in results[url]:
+                # Convert table data to include filenames
+                tables_with_filenames = []
+                for i, table_data in enumerate(tables):
+                    if i < len(saved_files):
+                        table_info = {
+                            "data": table_data,
+                            "filename": saved_files[i]
+                        }
+                    else:
+                        # Fallback if no file was saved for this table
+                        table_info = {
+                            "data": table_data,
+                            "filename": None
+                        }
+                    tables_with_filenames.append(table_info)
+                
+                # Update the results with enhanced table data
+                results[url]['tables'] = tables_with_filenames
     
     return stats
