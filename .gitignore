@@ -53,6 +53,7 @@ Thumbs.db
 
 # Database files generated during crawls
 *.db
+*.db*
 *.sqlite
 *.sqlite3
 
@@ -62,3 +63,12 @@ tmpclaude-*
 # Log files
 *.log
 tests/logs/
+
+#output files
+image_output/
+table_output/
+enterprise_*/
+PUBLISH_INSTRUCTIONS.md
+
+.*_cache/
+.venv/
